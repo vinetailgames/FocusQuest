@@ -12,6 +12,7 @@ class PomodoroTimer:
         self.running = False
         self.paused = False
         self.just_finished = False   # used by main to detect finish
+        self.just_finished_study = False
 
         self.rain_sound = None
         self.alarm_sound = None
@@ -40,6 +41,7 @@ class PomodoroTimer:
         self.remaining = self.study_seconds
         self.is_break = False
         self.just_finished = False
+        self.just_finished_study = False
 
     def start(self):
         if self.remaining <= 0:
@@ -47,6 +49,7 @@ class PomodoroTimer:
         self.running = True
         self.paused = False
         self.just_finished = False
+        self.just_finished_study = False
         if not self.is_break:
             self._fade_rain(True)
 
@@ -66,33 +69,39 @@ class PomodoroTimer:
         self.is_break = False
         self.remaining = self.study_seconds
         self.just_finished = False
+        self.just_finished_study = False
         self._fade_rain(False)
 
     def update(self, dt):
         self.just_finished = False
+        self.just_finished_study = False
 
         if self.running and not self.paused and self.remaining > 0:
             self.remaining -= dt / 1000.0
 
             if self.remaining <= 0:
+                finished_study = not self.is_break
                 self.remaining = 0
                 self.running = False
                 self.just_finished = True
+                self.just_finished_study = finished_study
                 self._fade_rain(False)
                 self._play_alarm()
 
-                # Automatically switch to break after study
-                if not self.is_break:
+                if finished_study:
                     self.is_break = True
                     self.remaining = self.break_seconds
-                    # Do not auto-start break – user can press Start again if they want
+                    self.running = True
+                else:
+                    self.is_break = False
+                    self.remaining = self.study_seconds
 
     def get_time_str(self):
         total = max(0, int(self.remaining))
         minutes = total // 60
         seconds = total % 60
-        prefix = "Break " if self.is_break else ""
-        return f"{prefix}{minutes:02d}:{seconds:02d}"
+        session = "Break" if self.is_break else "Focus"
+        return f"{session}: {minutes:02d}:{seconds:02d}"
 
     def _fade_rain(self, fade_in):
         if not self.rain_sound:
@@ -110,8 +119,4 @@ class PomodoroTimer:
 
     def _play_alarm(self):
         if self.alarm_sound:
-            # Pause music so alarm is clear
-            pygame.mixer.music.pause()
             self.alarm_sound.play()
-            # Resume music after a short delay (alarm length is usually short)
-            pygame.time.set_timer(pygame.USEREVENT + 1, 3000)  # 3 seconds

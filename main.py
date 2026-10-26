@@ -40,7 +40,7 @@ def main():
         SCREEN_WIDTH - 280, 20, 260, 40, "No Quest",
         wrap=True, auto_height=True
     )
-    timer_button = Button(SCREEN_WIDTH // 2 - 90, 20, 180, 50, "25:00")
+    timer_button = Button(SCREEN_WIDTH // 2 - 90, 20, 180, 50, "Study: 25:00")
 
     show_music_list = False
     show_quest_window = False
@@ -95,10 +95,6 @@ def main():
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-
-            if event.type == pygame.USEREVENT + 1:
-                pygame.mixer.music.unpause()
-                pygame.time.set_timer(pygame.USEREVENT + 1, 0)
 
             if event.type == pygame.KEYDOWN and event.key == pygame.K_DELETE:
                 quest_manager.reset_all()
@@ -235,16 +231,20 @@ def main():
         timer.update(dt)
         timer_button.set_text(timer.get_time_str())
 
-        if timer.just_finished and not timer.is_break:
-            q = quest_manager.get_current_quest()
-            if q and (q.quest_type != "task_list" or q.subtype == 2):
-                if q.subtype == 1:
-                    earned = quest_manager.add_progress(1)
-                else:
-                    earned = quest_manager.add_progress(timer.study_seconds // 60)
-                if earned > 0:
-                    print(f"Quest completed! +{earned} coins")
-                    update_quest_button()
+        if timer.just_finished:
+            if music_player.is_playing:
+                music_player.stop()
+
+            if timer.just_finished_study:
+                q = quest_manager.get_current_quest()
+                if q and (q.quest_type != "task_list" or q.subtype == 2):
+                    if q.subtype == 1:
+                        earned = quest_manager.add_progress(1)
+                    else:
+                        earned = quest_manager.add_progress(timer.study_seconds // 60)
+                    if earned > 0:
+                        print(f"Quest completed! +{earned} coins")
+                        update_quest_button()
 
         # Update hover
         music_button.update(mouse_pos)
