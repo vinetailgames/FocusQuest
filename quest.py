@@ -223,8 +223,11 @@ class QuestManager:
                 else:
                     self.save()
             else:
-                # Minute goals are completed by timer progress, not by checking off tasks.
-                self.save()
+                # Minute goals can finish by time or by checking off every listed task.
+                if not q.tasks:
+                    self._complete_quest(q)
+                else:
+                    self.save()
             return True
         return False
 
