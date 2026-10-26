@@ -65,6 +65,11 @@ def main():
     start_timer_btn = Button(0, 0, 120, 40, "Start")
     pause_timer_btn = Button(0, 0, 120, 40, "Pause")
     stop_timer_btn = Button(0, 0, 120, 40, "Stop")
+    quest_window_rect = pygame.Rect(SCREEN_WIDTH // 2 - 280, 80, 560, 520)
+
+    def quest_list_row_rect(index):
+        row_y = quest_window_rect.y + 55 + index * 32
+        return pygame.Rect(quest_window_rect.x + 25, row_y, 510, 30)
 
     def rebuild_music_list():
         nonlocal music_buttons
@@ -129,30 +134,30 @@ def main():
                         music_player.play(i)
 
             # Left click on quest list → select
-            if show_quest_window and not creating_quest and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                y = 145
-                for i, q in enumerate(quest_manager.quests):
-                    rect = pygame.Rect(SCREEN_WIDTH // 2 - 255, y, 510, 30)
-                    if rect.collidepoint(event.pos):
+            if show_quest_window and not creating_quest and context_menu is None and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                for i, _ in enumerate(quest_manager.quests):
+                    if quest_list_row_rect(i).collidepoint(event.pos):
                         quest_manager.set_current_quest(i)
                         update_quest_button()
                         break
-                    y += 32
 
             # Right click → context menu
             if show_quest_window and not creating_quest and event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
-                y = 145
-                for i, q in enumerate(quest_manager.quests):
-                    rect = pygame.Rect(SCREEN_WIDTH // 2 - 255, y, 510, 30)
-                    if rect.collidepoint(event.pos):
-                        context_menu = (event.pos[0], event.pos[1], i)
+                for i, _ in enumerate(quest_manager.quests):
+                    if quest_list_row_rect(i).collidepoint(event.pos):
+                        context_menu = (event.pos[0], event.pos[1], quest_manager.quests[i])
                         break
-                    y += 32
 
             # Context menu actions
             if context_menu and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                mx, my, idx = context_menu
-                if pygame.Rect(mx, my, 120, 30).collidepoint(event.pos):
+                mx, my, selected_quest = context_menu
+                idx = next(
+                    (i for i, quest in enumerate(quest_manager.quests) if quest is selected_quest),
+                    None
+                )
+                if idx is None:
+                    context_menu = None
+                elif pygame.Rect(mx, my, 120, 30).collidepoint(event.pos):
                     editing_index = idx
                     name_input.text = quest_manager.quests[idx].task_name
                     name_input.txt_surface = name_input.font.render(name_input.text, True, WHITE)
@@ -308,7 +313,7 @@ def main():
 
         # ===== Quest Window =====
         if show_quest_window:
-            window = pygame.Rect(SCREEN_WIDTH // 2 - 280, 80, 560, 520)
+            window = quest_window_rect
             pygame.draw.rect(screen, (25, 25, 35), window, border_radius=14)
             pygame.draw.rect(screen, LIGHT_GRAY, window, 2, border_radius=14)
 
@@ -321,14 +326,12 @@ def main():
             screen.blit(title, (window.x + 20, window.y + 12))
 
             if not creating_quest:
-                y = window.y + 55
-                for q in quest_manager.quests:
+                for i, q in enumerate(quest_manager.quests):
                     status = "✓" if q.completed else "○"
                     color = GREEN if q.completed else WHITE
                     text = f"{status} {q.description}"
                     label = normal_font.render(text[:50], True, color)
-                    screen.blit(label, (window.x + 25, y))
-                    y += 32
+                    screen.blit(label, quest_list_row_rect(i).topleft)
 
                 add_button.rect.topleft = (window.x + 20, window.bottom - 60)
                 add_button.draw(screen)

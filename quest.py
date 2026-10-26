@@ -81,11 +81,10 @@ class QuestManager:
         else:  # task_list
             task_pool = list(available_task_names) if available_task_names is not None else [task_name]
             if subtype == 1:
-                random.shuffle(task_pool)
                 target = min(random.randint(1, 5), len(task_pool))
                 reward = 30 * target
                 description = f"Must complete {target} tasks"
-                tasks = task_pool[:target]
+                tasks = self._choose_task_names(task_name, task_pool, target)
             else:
                 target = random.randrange(15, 46, 5)
                 reward = target
@@ -102,13 +101,33 @@ class QuestManager:
             tasks=tasks
         )
 
+    @staticmethod
+    def _choose_task_names(task_name, available_task_names, count):
+        """Include this quest's task, then randomly fill the remaining slots."""
+        if count <= 0:
+            return []
+
+        task_pool = list(available_task_names)
+        if task_name in task_pool:
+            task_pool.remove(task_name)
+            selected = [task_name]
+        else:
+            selected = []
+
+        random.shuffle(task_pool)
+        selected.extend(task_pool[:max(0, count - len(selected))])
+        return selected
+
     def add_quest(self, task_name, quest_type):
         """Add a quest with a randomly selected goal subtype and target."""
         task_name = task_name.strip()
         if not task_name:
             return None
 
-        available_task_names = [quest.task_name for quest in self.quests]
+        available_task_names = [
+            quest.task_name for quest in self.quests
+            if quest.quest_type == "task_list"
+        ]
         if quest_type == "task_list":
             available_task_names.append(task_name)
         quest = self._make_quest_variant(task_name, quest_type, available_task_names)
@@ -121,7 +140,10 @@ class QuestManager:
     def _start_new_iteration(self):
         """Reroll goals and order without changing each quest's task or category."""
         previous_order = tuple(id(quest) for quest in self.quests)
-        available_task_names = [quest.task_name for quest in self.quests]
+        available_task_names = [
+            quest.task_name for quest in self.quests
+            if quest.quest_type == "task_list"
+        ]
         for quest in self.quests:
             new_variant = self._make_quest_variant(
                 quest.task_name,
@@ -217,40 +239,49 @@ class QuestManager:
 
     def _repair_saved_task_lists(self):
         """Replace legacy repeated task rows with distinct available quest tasks."""
-        available_tasks = [quest.task_name for quest in self.quests]
+        available_tasks = [
+            quest.task_name for quest in self.quests
+            if quest.quest_type == "task_list"
+        ]
         available_counts = Counter(available_tasks)
         changed = False
 
         for quest in self.quests:
-            if quest.completed or quest.quest_type != "task_list" or quest.subtype != 1:
+            if quest.completed or quest.quest_type != "task_list":
                 continue
 
-            target = min(quest.target_value, len(available_tasks))
-            expected_remaining = max(0, target - quest.progress)
             current_counts = Counter(quest.tasks)
             has_unavailable_duplicates = any(
                 count > available_counts[task_name]
                 for task_name, count in current_counts.items()
             )
-            if (
-                not has_unavailable_duplicates
-                and target == quest.target_value
-                and len(quest.tasks) == expected_remaining
-            ):
-                continue
+            if quest.subtype == 1:
+                target = min(quest.target_value, len(available_tasks))
+                expected_remaining = max(0, target - quest.progress)
+                if (
+                    not has_unavailable_duplicates
+                    and target == quest.target_value
+                    and len(quest.tasks) == expected_remaining
+                ):
+                    continue
 
-            quest.target_value = target
-            quest.reward = 30 * target
-            quest.description = f"Must complete {target} tasks"
-            if quest.progress >= target:
-                quest.completed = True
-                quest.tasks = []
-                self.coin_amount += quest.reward
-            else:
-                task_pool = available_tasks.copy()
-                random.shuffle(task_pool)
-                quest.tasks = task_pool[:expected_remaining]
-            changed = True
+                quest.target_value = target
+                quest.reward = 30 * target
+                quest.description = f"Must complete {target} tasks"
+                if quest.progress >= target:
+                    quest.completed = True
+                    quest.tasks = []
+                    self.coin_amount += quest.reward
+                elif quest.progress == 0:
+                    quest.tasks = self._choose_task_names(quest.task_name, available_tasks, expected_remaining)
+                else:
+                    task_pool = available_tasks.copy()
+                    random.shuffle(task_pool)
+                    quest.tasks = task_pool[:expected_remaining]
+                changed = True
+            elif has_unavailable_duplicates:
+                quest.tasks = available_tasks.copy()
+                changed = True
 
         return changed
 
