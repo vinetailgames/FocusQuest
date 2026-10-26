@@ -31,3 +31,33 @@ class Button:
 
     def set_text(self, new_text):
         self.text = new_text
+
+class InputBox:
+    def __init__(self, x, y, width, height, text=""):
+        self.rect = pygame.Rect(x, y, width, height)
+        self.color = LIGHT_GRAY
+        self.text = text
+        self.font = pygame.font.SysFont(None, 28)
+        self.active = False
+        self.txt_surface = self.font.render(text, True, WHITE)
+
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            self.active = self.rect.collidepoint(event.pos)
+            self.color = GOLD if self.active else LIGHT_GRAY
+
+        if event.type == pygame.KEYDOWN and self.active:
+            if event.key == pygame.K_RETURN:
+                return "enter"
+            elif event.key == pygame.K_BACKSPACE:
+                self.text = self.text[:-1]
+            else:
+                if len(self.text) < 30:
+                    self.text += event.unicode
+            self.txt_surface = self.font.render(self.text, True, WHITE)
+        return None
+
+    def draw(self, surface):
+        pygame.draw.rect(surface, (20, 20, 30), self.rect, border_radius=6)
+        pygame.draw.rect(surface, self.color, self.rect, 2, border_radius=6)
+        surface.blit(self.txt_surface, (self.rect.x + 8, self.rect.y + 8))
