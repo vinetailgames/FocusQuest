@@ -31,12 +31,10 @@ def main():
     quest_manager = QuestManager()
     timer = PomodoroTimer()
 
-    coin_amount = 0
     coin_font = pygame.font.SysFont(None, FONT_LARGE)
     normal_font = pygame.font.SysFont(None, 26)
-    timer_font = pygame.font.SysFont(None, 48)
 
-    # Main buttons
+    # Buttons
     music_button = Button(20, SCREEN_HEIGHT - 60, 160, 40, "Music")
     quest_button = Button(SCREEN_WIDTH - 220, 20, 200, 40, "No Quest")
     timer_button = Button(SCREEN_WIDTH // 2 - 80, 20, 160, 50, "25:00")
@@ -46,15 +44,26 @@ def main():
     show_quest_window = False
     show_timer_window = False
     music_buttons = []
-
-    # Quest creation state
     creating_quest = False
     selected_type = "main"
     selected_subtype = 1
     name_input = InputBox(0, 0, 400, 40)
-
-    # Timer settings
     timer_input = InputBox(0, 0, 120, 40, "25")
+
+    # Quest window buttons
+    add_button = Button(0, 0, 140, 40, "+ Add Quest")
+    type_main_btn = Button(0, 0, 120, 36, "Main")
+    type_side_btn = Button(0, 0, 120, 36, "Side")
+    type_task_btn = Button(0, 0, 140, 36, "Task List")
+    sub_pomodoro_btn = Button(0, 0, 140, 36, "Pomodoros")
+    sub_minutes_btn = Button(0, 0, 140, 36, "Minutes")
+    confirm_btn = Button(0, 0, 120, 40, "Confirm")
+    cancel_btn = Button(0, 0, 120, 40, "Cancel")
+
+    # Timer window buttons
+    start_timer_btn = Button(0, 0, 120, 40, "Start")
+    pause_timer_btn = Button(0, 0, 120, 40, "Pause")
+    stop_timer_btn = Button(0, 0, 120, 40, "Stop")
 
     def rebuild_music_list():
         nonlocal music_buttons
@@ -75,21 +84,6 @@ def main():
 
     update_quest_button()
 
-    # Quest window buttons
-    add_button = Button(0, 0, 140, 40, "+ Add Quest")
-    type_main_btn = Button(0, 0, 120, 36, "Main")
-    type_side_btn = Button(0, 0, 120, 36, "Side")
-    type_task_btn = Button(0, 0, 140, 36, "Task List")
-    sub_pomodoro_btn = Button(0, 0, 140, 36, "Pomodoros")
-    sub_minutes_btn = Button(0, 0, 140, 36, "Minutes")
-    confirm_btn = Button(0, 0, 120, 40, "Confirm")
-    cancel_btn = Button(0, 0, 120, 40, "Cancel")
-
-    # Timer window buttons
-    start_timer_btn = Button(0, 0, 120, 40, "Start")
-    pause_timer_btn = Button(0, 0, 120, 40, "Pause")
-    stop_timer_btn = Button(0, 0, 120, 40, "Stop")
-
     running = True
     while running:
         dt = clock.tick(FPS)
@@ -98,6 +92,12 @@ def main():
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+
+            # Hold Delete to reset everything
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_DELETE:
+                quest_manager.reset_all()
+                update_quest_button()
+                print("All data reset!")
 
             # Main buttons
             if music_button.is_clicked(event):
@@ -118,7 +118,7 @@ def main():
                 show_quest_window = False
                 creating_quest = False
 
-            # Music list
+            # Music
             if show_music_list:
                 for i, btn in enumerate(music_buttons):
                     if btn.is_clicked(event):
@@ -132,16 +132,11 @@ def main():
                         name_input.text = ""
                         name_input.txt_surface = name_input.font.render("", True, WHITE)
                 else:
-                    if type_main_btn.is_clicked(event):
-                        selected_type = "main"
-                    if type_side_btn.is_clicked(event):
-                        selected_type = "side"
-                    if type_task_btn.is_clicked(event):
-                        selected_type = "task_list"
-                    if sub_pomodoro_btn.is_clicked(event):
-                        selected_subtype = 1
-                    if sub_minutes_btn.is_clicked(event):
-                        selected_subtype = 2
+                    if type_main_btn.is_clicked(event): selected_type = "main"
+                    if type_side_btn.is_clicked(event): selected_type = "side"
+                    if type_task_btn.is_clicked(event): selected_type = "task_list"
+                    if sub_pomodoro_btn.is_clicked(event): selected_subtype = 1
+                    if sub_minutes_btn.is_clicked(event): selected_subtype = 2
 
                     result = name_input.handle_event(event)
                     if result == "enter" or confirm_btn.is_clicked(event):
@@ -155,7 +150,6 @@ def main():
             # Timer window
             if show_timer_window:
                 timer_input.handle_event(event)
-
                 if start_timer_btn.is_clicked(event):
                     try:
                         mins = int(timer_input.text)
@@ -164,29 +158,38 @@ def main():
                         show_timer_window = False
                     except ValueError:
                         pass
-
                 if pause_timer_btn.is_clicked(event):
                     if timer.paused:
                         timer.resume()
                     else:
                         timer.pause()
-
                 if stop_timer_btn.is_clicked(event):
                     timer.stop()
 
         # Update timer
+        was_finished = timer.finished
         timer.update(dt)
         timer_button.set_text(timer.get_time_str())
 
-        # Update buttons
+        # When timer finishes → award progress
+        if timer.finished and not was_finished:
+            q = quest_manager.get_current_quest()
+            if q:
+                if q.subtype == 1:  # pomodoros
+                    earned = quest_manager.add_progress(1)
+                else:               # minutes
+                    earned = quest_manager.add_progress(timer.study_seconds // 60)
+                if earned > 0:
+                    print(f"Quest completed! +{earned} coins")
+                    update_quest_button()
+
+        # Update UI
         music_button.update(mouse_pos)
         quest_button.update(mouse_pos)
         timer_button.update(mouse_pos)
-
         if show_music_list:
             for btn in music_buttons:
                 btn.update(mouse_pos)
-
         if show_quest_window:
             add_button.update(mouse_pos)
             if creating_quest:
@@ -197,7 +200,6 @@ def main():
                 sub_minutes_btn.update(mouse_pos)
                 confirm_btn.update(mouse_pos)
                 cancel_btn.update(mouse_pos)
-
         if show_timer_window:
             start_timer_btn.update(mouse_pos)
             pause_timer_btn.update(mouse_pos)
@@ -207,7 +209,7 @@ def main():
         screen.blit(background, (0, 0))
 
         # Coins
-        coin_text = coin_font.render(f"Coins: {coin_amount}", True, GOLD)
+        coin_text = coin_font.render(f"Coins: {quest_manager.coin_amount}", True, GOLD)
         coin_rect = coin_text.get_rect(topleft=(20, 20))
         pygame.draw.rect(screen, (0, 0, 0, 180), coin_rect.inflate(20, 10), border_radius=6)
         screen.blit(coin_text, coin_rect)
@@ -220,12 +222,11 @@ def main():
             for btn in music_buttons:
                 btn.draw(screen)
 
-        # Quest window (same as before)
+        # Quest window
         if show_quest_window:
             window = pygame.Rect(SCREEN_WIDTH//2 - 280, 80, 560, 520)
             pygame.draw.rect(screen, (25, 25, 35), window, border_radius=14)
             pygame.draw.rect(screen, LIGHT_GRAY, window, 2, border_radius=14)
-
             title = normal_font.render("Quest Manager", True, WHITE)
             screen.blit(title, (window.x + 20, window.y + 15))
 
@@ -234,8 +235,8 @@ def main():
                 for q in quest_manager.quests:
                     status = "✓" if q.completed else "○"
                     color = GREEN if q.completed else WHITE
-                    text = f"{status} [{q.quest_type}] {q.name}"
-                    label = normal_font.render(text[:50], True, color)
+                    text = f"{status} [{q.quest_type}] {q.name} ({q.progress}/{q.target_value})"
+                    label = normal_font.render(text[:55], True, color)
                     screen.blit(label, (window.x + 25, y))
                     y += 32
                 add_button.rect.topleft = (window.x + 20, window.bottom - 60)
@@ -248,7 +249,6 @@ def main():
 
                 label = normal_font.render("Type:", True, WHITE)
                 screen.blit(label, (window.x + 30, window.y + 160))
-
                 type_main_btn.rect.topleft = (window.x + 30, window.y + 190)
                 type_side_btn.rect.topleft = (window.x + 160, window.y + 190)
                 type_task_btn.rect.topleft = (window.x + 290, window.y + 190)
@@ -273,25 +273,20 @@ def main():
                 confirm_btn.draw(screen)
                 cancel_btn.draw(screen)
 
-        # ===== TIMER WINDOW =====
+        # Timer window
         if show_timer_window:
             window = pygame.Rect(SCREEN_WIDTH//2 - 180, 120, 360, 280)
             pygame.draw.rect(screen, (25, 25, 35), window, border_radius=14)
             pygame.draw.rect(screen, LIGHT_GRAY, window, 2, border_radius=14)
-
             title = normal_font.render("Pomodoro Timer", True, WHITE)
             screen.blit(title, (window.x + 20, window.y + 15))
-
             label = normal_font.render("Minutes:", True, WHITE)
             screen.blit(label, (window.x + 30, window.y + 70))
-
             timer_input.rect.topleft = (window.x + 130, window.y + 65)
             timer_input.draw(screen)
-
             start_timer_btn.rect.topleft = (window.x + 30, window.y + 140)
             pause_timer_btn.rect.topleft = (window.x + 160, window.y + 140)
             stop_timer_btn.rect.topleft = (window.x + 30, window.y + 200)
-
             start_timer_btn.draw(screen)
             pause_timer_btn.draw(screen)
             stop_timer_btn.draw(screen)

@@ -42,10 +42,10 @@ class QuestManager:
     def __init__(self):
         self.quests = []
         self.current_quest = None
+        self.coin_amount = 0
         self.load()
 
     def add_quest(self, name, quest_type, subtype):
-        """Create a new quest with random target based on type."""
         if quest_type == "main":
             if subtype == 1:
                 n = random.randint(1, 2)
@@ -58,7 +58,7 @@ class QuestManager:
         elif quest_type == "side":
             if subtype == 1:
                 n = random.randint(1, 4)
-                reward = int(1.5 * 30 * n + 0.5)  # round up
+                reward = int(1.5 * 30 * n + 0.5)
                 target = n
             else:
                 t = random.choice([30, 45, 60, 75, 90])
@@ -80,7 +80,6 @@ class QuestManager:
         return quest
 
     def get_current_quest(self):
-        # Priority: main > side > task_list
         for qtype in ["main", "side", "task_list"]:
             for q in self.quests:
                 if q.quest_type == qtype and not q.completed:
@@ -89,21 +88,29 @@ class QuestManager:
         self.current_quest = None
         return None
 
-    def complete_current(self):
-        if self.current_quest:
-            self.current_quest.completed = True
+    def add_progress(self, amount):
+        """Add progress to current quest. Returns coins earned if completed."""
+        q = self.get_current_quest()
+        if not q:
+            return 0
+
+        q.progress += amount
+        if q.progress >= q.target_value:
+            q.completed = True
+            self.coin_amount += q.reward
             self.save()
-            return self.current_quest.reward
+            return q.reward
+        self.save()
         return 0
 
-    def reset_all_completed(self):
-        for q in self.quests:
-            q.completed = False
-            q.progress = 0
+    def reset_all(self):
+        self.quests.clear()
+        self.coin_amount = 0
         self.save()
 
     def save(self):
         data = {
+            "coin_amount": self.coin_amount,
             "quests": [q.to_dict() for q in self.quests]
         }
         os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
@@ -116,7 +123,9 @@ class QuestManager:
         try:
             with open(DATA_FILE, "r") as f:
                 data = json.load(f)
+            self.coin_amount = data.get("coin_amount", 0)
             self.quests = [Quest.from_dict(q) for q in data.get("quests", [])]
         except Exception as e:
-            print(f"Error loading quests: {e}")
+            print(f"Error loading save: {e}")
             self.quests = []
+            self.coin_amount = 0
