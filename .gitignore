@@ -1,0 +1,23 @@
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Save data (keep personal progress local)
+data/save.json
+data/*.json
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Audio / large assets (optional – remove these lines if you want to push music)
+# assets/music/
+# assets/sounds/
