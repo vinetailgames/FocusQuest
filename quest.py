@@ -140,3 +140,11 @@ class QuestManager:
             print(f"Error loading save: {e}")
             self.quests = []
             self.coin_amount = 0
+    def set_current_quest(self, index):
+        """Force a specific quest to be the current one (for clicking in list)."""
+        if 0 <= index < len(self.quests):
+            # Move the chosen quest to the front of its priority group
+            quest = self.quests.pop(index)
+            # Insert it at the beginning so get_current_quest finds it first
+            self.quests.insert(0, quest)
+            self.save()
