@@ -190,6 +190,18 @@ class QuestManager:
             self.quests.insert(0, quest)
             self.save()
 
+    def shuffle_quests(self):
+        """Randomize quest order without changing goals or quest categories."""
+        if len(self.quests) < 2:
+            return False
+
+        previous_order = tuple(id(quest) for quest in self.quests)
+        random.shuffle(self.quests)
+        if tuple(id(quest) for quest in self.quests) == previous_order:
+            self.quests[0], self.quests[1] = self.quests[1], self.quests[0]
+        self.save()
+        return True
+
     def add_progress(self, amount):
         q = self.get_current_quest()
         if not q:

@@ -56,6 +56,7 @@ def main():
     break_input = InputBox(0, 0, 80, 36, "5")
 
     add_button = Button(0, 0, 140, 40, "+ Add Quest")
+    shuffle_button = Button(0, 0, 140, 40, "Shuffle")
     type_main_btn = Button(0, 0, 120, 36, "Main")
     type_side_btn = Button(0, 0, 120, 36, "Side")
     type_task_btn = Button(0, 0, 140, 36, "Task List")
@@ -98,6 +99,7 @@ def main():
         mouse_pos = pygame.mouse.get_pos()
 
         for event in pygame.event.get():
+            context_menu_was_open = context_menu is not None
             if event.type == pygame.QUIT:
                 running = False
 
@@ -173,7 +175,10 @@ def main():
             # Quest creation
             if show_quest_window:
                 if not creating_quest:
-                    if add_button.is_clicked(event):
+                    if not context_menu_was_open and shuffle_button.is_clicked(event):
+                        quest_manager.shuffle_quests()
+                        update_quest_button()
+                    elif not context_menu_was_open and add_button.is_clicked(event):
                         creating_quest = True
                         editing_index = None
                         name_input.text = ""
@@ -261,13 +266,15 @@ def main():
                 btn.update(mouse_pos)
 
         if show_quest_window:
-            add_button.update(mouse_pos)
             if creating_quest:
                 type_main_btn.update(mouse_pos)
                 type_side_btn.update(mouse_pos)
                 type_task_btn.update(mouse_pos)
                 confirm_btn.update(mouse_pos)
                 cancel_btn.update(mouse_pos)
+            else:
+                add_button.update(mouse_pos)
+                shuffle_button.update(mouse_pos)
 
         if show_timer_window:
             start_timer_btn.update(mouse_pos)
@@ -334,7 +341,9 @@ def main():
                     screen.blit(label, quest_list_row_rect(i).topleft)
 
                 add_button.rect.topleft = (window.x + 20, window.bottom - 60)
+                shuffle_button.rect.topleft = (window.right - 160, window.bottom - 60)
                 add_button.draw(screen)
+                shuffle_button.draw(screen)
             else:
                 label = normal_font.render("Task Name:", True, WHITE)
                 screen.blit(label, (window.x + 30, window.y + 70))
