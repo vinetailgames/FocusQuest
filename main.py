@@ -3,7 +3,7 @@ import pygame
 import sys
 import os
 from constants import *
-from ui import Button, InputBox
+from ui import Button, InputBox, MultilineInputBox
 from music_player import MusicPlayer
 from quest import QuestManager
 from timer import PomodoroTimer
@@ -50,8 +50,10 @@ def main():
     editing_index = None
     context_menu = None
     selected_type = "main"
+    quest_list_scroll = 0
 
     name_input = InputBox(0, 0, 400, 40)
+    task_list_input = MultilineInputBox(0, 0, 500, 300)
     study_input = InputBox(0, 0, 80, 36, "25")
     break_input = InputBox(0, 0, 80, 36, "5")
 
@@ -67,10 +69,14 @@ def main():
     pause_timer_btn = Button(0, 0, 120, 40, "Pause")
     stop_timer_btn = Button(0, 0, 120, 40, "Stop")
     quest_window_rect = pygame.Rect(SCREEN_WIDTH // 2 - 280, 80, 560, 520)
+    quest_list_visible_rows = 12
 
-    def quest_list_row_rect(index):
-        row_y = quest_window_rect.y + 55 + index * 32
+    def quest_list_row_rect(visible_index):
+        row_y = quest_window_rect.y + 55 + visible_index * 32
         return pygame.Rect(quest_window_rect.x + 25, row_y, 510, 30)
+
+    def max_quest_list_scroll():
+        return max(0, len(quest_manager.quests) - quest_list_visible_rows)
 
     def rebuild_music_list():
         nonlocal music_buttons
@@ -137,18 +143,31 @@ def main():
 
             # Left click on quest list → select
             if show_quest_window and not creating_quest and context_menu is None and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                for i, _ in enumerate(quest_manager.quests):
-                    if quest_list_row_rect(i).collidepoint(event.pos):
-                        quest_manager.set_current_quest(i)
+                for visible_index in range(quest_list_visible_rows):
+                    quest_index = quest_list_scroll + visible_index
+                    if quest_index >= len(quest_manager.quests):
+                        break
+                    if quest_list_row_rect(visible_index).collidepoint(event.pos):
+                        quest_manager.set_current_quest(quest_index)
                         update_quest_button()
                         break
 
             # Right click → context menu
             if show_quest_window and not creating_quest and event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
-                for i, _ in enumerate(quest_manager.quests):
-                    if quest_list_row_rect(i).collidepoint(event.pos):
-                        context_menu = (event.pos[0], event.pos[1], quest_manager.quests[i])
+                for visible_index in range(quest_list_visible_rows):
+                    quest_index = quest_list_scroll + visible_index
+                    if quest_index >= len(quest_manager.quests):
                         break
+                    if quest_list_row_rect(visible_index).collidepoint(event.pos):
+                        context_menu = (event.pos[0], event.pos[1], quest_manager.quests[quest_index])
+                        break
+
+            if show_quest_window and not creating_quest and event.type == pygame.MOUSEWHEEL:
+                if quest_window_rect.collidepoint(mouse_pos):
+                    quest_list_scroll = max(
+                        0,
+                        min(max_quest_list_scroll(), quest_list_scroll - event.y * 3)
+                    )
 
             # Context menu actions
             if context_menu and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -161,8 +180,14 @@ def main():
                     context_menu = None
                 elif pygame.Rect(mx, my, 120, 30).collidepoint(event.pos):
                     editing_index = idx
-                    name_input.text = quest_manager.quests[idx].task_name
-                    name_input.txt_surface = name_input.font.render(name_input.text, True, WHITE)
+                    selected_type = selected_quest.quest_type
+                    if selected_type == "task_list":
+                        task_list_input.text = "\n".join(quest_manager.task_catalog)
+                        task_list_input.active = False
+                        task_list_input.color = LIGHT_GRAY
+                    else:
+                        name_input.text = selected_quest.task_name
+                        name_input.txt_surface = name_input.font.render(name_input.text, True, WHITE)
                     creating_quest = True
                     context_menu = None
                 elif pygame.Rect(mx, my + 30, 120, 30).collidepoint(event.pos):
@@ -183,13 +208,34 @@ def main():
                         editing_index = None
                         name_input.text = ""
                         name_input.txt_surface = name_input.font.render("", True, WHITE)
+                        task_list_input.text = ""
+                        task_list_input.active = False
+                        task_list_input.color = LIGHT_GRAY
                 else:
-                    if type_main_btn.is_clicked(event): selected_type = "main"
-                    if type_side_btn.is_clicked(event): selected_type = "side"
-                    if type_task_btn.is_clicked(event): selected_type = "task_list"
-                    result = name_input.handle_event(event)
+                    if editing_index is None:
+                        if type_main_btn.is_clicked(event): selected_type = "main"
+                        if type_side_btn.is_clicked(event): selected_type = "side"
+                        if type_task_btn.is_clicked(event): selected_type = "task_list"
+
+                    result = None
+                    if selected_type == "task_list":
+                        task_list_input.handle_event(event)
+                    else:
+                        result = name_input.handle_event(event)
+
                     if result == "enter" or confirm_btn.is_clicked(event):
-                        if name_input.text.strip():
+                        if selected_type == "task_list":
+                            task_names = [line.strip() for line in task_list_input.text.splitlines() if line.strip()]
+                            if editing_index is not None:
+                                quest_manager.replace_task_catalog(task_names)
+                                update_quest_button()
+                                creating_quest = False
+                                editing_index = None
+                            elif task_names:
+                                quest_manager.add_task_list(task_names)
+                                update_quest_button()
+                                creating_quest = False
+                        elif name_input.text.strip():
                             if editing_index is not None:
                                 quest_manager.edit_quest(editing_index, name_input.text.strip())
                             else:
@@ -200,6 +246,8 @@ def main():
                     if cancel_btn.is_clicked(event):
                         creating_quest = False
                         editing_index = None
+                        task_list_input.active = False
+                        task_list_input.color = LIGHT_GRAY
 
             # Clicking tasks in the task list (right panel)
             current = quest_manager.get_current_quest()
@@ -333,29 +381,38 @@ def main():
             screen.blit(title, (window.x + 20, window.y + 12))
 
             if not creating_quest:
-                for i, q in enumerate(quest_manager.quests):
+                quest_list_scroll = min(quest_list_scroll, max_quest_list_scroll())
+                for visible_index in range(quest_list_visible_rows):
+                    quest_index = quest_list_scroll + visible_index
+                    if quest_index >= len(quest_manager.quests):
+                        break
+                    q = quest_manager.quests[quest_index]
                     status = "✓" if q.completed else "○"
                     color = GREEN if q.completed else WHITE
                     text = f"{status} {q.description}"
                     label = normal_font.render(text[:50], True, color)
-                    screen.blit(label, quest_list_row_rect(i).topleft)
+                    screen.blit(label, quest_list_row_rect(visible_index).topleft)
+
+                if len(quest_manager.quests) > quest_list_visible_rows:
+                    track = pygame.Rect(window.right - 14, window.y + 55, 5, quest_list_visible_rows * 32 - 2)
+                    thumb_height = max(24, track.height * quest_list_visible_rows // len(quest_manager.quests))
+                    scroll_range = max_quest_list_scroll()
+                    thumb_offset = (track.height - thumb_height) * quest_list_scroll // scroll_range
+                    thumb = pygame.Rect(track.x, track.y + thumb_offset, track.width, thumb_height)
+                    pygame.draw.rect(screen, (80, 80, 90), track, border_radius=3)
+                    pygame.draw.rect(screen, LIGHT_GRAY, thumb, border_radius=3)
 
                 add_button.rect.topleft = (window.x + 20, window.bottom - 60)
                 shuffle_button.rect.topleft = (window.right - 160, window.bottom - 60)
                 add_button.draw(screen)
                 shuffle_button.draw(screen)
             else:
-                label = normal_font.render("Task Name:", True, WHITE)
-                screen.blit(label, (window.x + 30, window.y + 70))
-                name_input.rect.topleft = (window.x + 30, window.y + 100)
-                name_input.draw(screen)
-
                 label = normal_font.render("Type:", True, WHITE)
-                screen.blit(label, (window.x + 30, window.y + 160))
+                screen.blit(label, (window.x + 30, window.y + 45))
 
-                type_main_btn.rect.topleft = (window.x + 30, window.y + 190)
-                type_side_btn.rect.topleft = (window.x + 160, window.y + 190)
-                type_task_btn.rect.topleft = (window.x + 290, window.y + 190)
+                type_main_btn.rect.topleft = (window.x + 30, window.y + 70)
+                type_side_btn.rect.topleft = (window.x + 160, window.y + 70)
+                type_task_btn.rect.topleft = (window.x + 290, window.y + 70)
 
                 type_main_btn.bg_color = GOLD if selected_type == "main" else DARK_GRAY
                 type_side_btn.bg_color = GOLD if selected_type == "side" else DARK_GRAY
@@ -364,6 +421,18 @@ def main():
                 type_main_btn.draw(screen)
                 type_side_btn.draw(screen)
                 type_task_btn.draw(screen)
+
+                if selected_type == "task_list":
+                    label = normal_font.render("Tasks (one task per line; Enter starts a new line):", True, WHITE)
+                    screen.blit(label, (window.x + 30, window.y + 112))
+                    task_list_input.rect.topleft = (window.x + 30, window.y + 140)
+                    task_list_input.rect.size = (500, 300)
+                    task_list_input.draw(screen)
+                else:
+                    label = normal_font.render("Task Name:", True, WHITE)
+                    screen.blit(label, (window.x + 30, window.y + 130))
+                    name_input.rect.topleft = (window.x + 30, window.y + 160)
+                    name_input.draw(screen)
 
                 confirm_btn.rect.topleft = (window.x + 30, window.bottom - 60)
                 cancel_btn.rect.topleft = (window.x + 170, window.bottom - 60)

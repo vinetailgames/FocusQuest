@@ -118,3 +118,45 @@ class InputBox:
         pygame.draw.rect(surface, (20, 20, 30), self.rect, border_radius=6)
         pygame.draw.rect(surface, self.color, self.rect, 2, border_radius=6)
         surface.blit(self.txt_surface, (self.rect.x + 8, self.rect.y + 8))
+
+
+class MultilineInputBox:
+    def __init__(self, x, y, width, height, text=""):
+        self.rect = pygame.Rect(x, y, width, height)
+        self.color = LIGHT_GRAY
+        self.text = text
+        self.font = pygame.font.SysFont(None, 26)
+        self.active = False
+
+    def handle_event(self, event):
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            self.active = self.rect.collidepoint(event.pos)
+            self.color = GOLD if self.active else LIGHT_GRAY
+
+        if event.type == pygame.KEYDOWN and self.active:
+            if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+                self.text += "\n"
+            elif event.key == pygame.K_BACKSPACE:
+                self.text = self.text[:-1]
+            elif event.key == pygame.K_a and event.mod & pygame.KMOD_CTRL:
+                self.text = ""
+            elif event.unicode and event.unicode.isprintable():
+                self.text += event.unicode
+
+    def draw(self, surface):
+        pygame.draw.rect(surface, (20, 20, 30), self.rect, border_radius=6)
+        pygame.draw.rect(surface, self.color, self.rect, 2, border_radius=6)
+
+        viewport = self.rect.inflate(-16, -16)
+        previous_clip = surface.get_clip()
+        surface.set_clip(viewport)
+
+        lines = self.text.split("\n")
+        line_height = self.font.get_linesize()
+        visible_rows = max(1, viewport.height // line_height)
+        visible_lines = lines[-visible_rows:]
+        for index, line in enumerate(visible_lines):
+            line_surface = self.font.render(line, True, WHITE)
+            surface.blit(line_surface, (viewport.x, viewport.y + index * line_height))
+
+        surface.set_clip(previous_clip)

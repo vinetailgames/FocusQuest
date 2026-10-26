@@ -3,11 +3,10 @@ import json
 import math
 import os
 import random
-from collections import Counter
 from constants import DATA_FILE
 
 class Quest:
-    def __init__(self, task_name, quest_type, subtype, target_value, reward, description, completed=False, tasks=None):
+    def __init__(self, task_name, quest_type, subtype, target_value, reward, description, completed=False, tasks=None, source_tasks=None):
         self.task_name = task_name
         self.quest_type = quest_type
         self.subtype = subtype
@@ -17,6 +16,7 @@ class Quest:
         self.completed = completed
         self.progress = 0
         self.tasks = tasks or []
+        self.source_tasks = list(source_tasks if source_tasks is not None else self.tasks)
 
     def to_dict(self):
         return {
@@ -28,7 +28,8 @@ class Quest:
             "description": self.description,
             "completed": self.completed,
             "progress": self.progress,
-            "tasks": self.tasks
+            "tasks": self.tasks,
+            "source_tasks": self.source_tasks
         }
 
     @staticmethod
@@ -41,7 +42,8 @@ class Quest:
             data["reward"],
             data["description"],
             data.get("completed", False),
-            data.get("tasks", [])
+            data.get("tasks", []),
+            data.get("source_tasks")
         )
         q.progress = data.get("progress", 0)
         return q
@@ -49,17 +51,16 @@ class Quest:
 class QuestManager:
     def __init__(self):
         self.quests = []
+        self.task_catalog = []
         self.coin_amount = 0
         self.load()
 
-    def _make_quest_variant(self, task_name, quest_type, available_task_names=None):
-        """Create a random goal while preserving the task name and quest category."""
-        if quest_type not in ("main", "side", "task_list"):
+    def _make_quest_variant(self, task_name, quest_type):
+        """Create a random main or side quest while preserving its category."""
+        if quest_type not in ("main", "side"):
             return None
 
         subtype = random.choice([1, 2])
-        tasks = []
-
         if quest_type == "main":
             if subtype == 1:
                 target = random.randint(1, 2)
@@ -69,27 +70,14 @@ class QuestManager:
                 target = random.randrange(60, 181, 5)
                 reward = 2 * target
                 description = f"Must complete {target} minutes of {task_name}"
-        elif quest_type == "side":
-            if subtype == 1:
-                target = random.randint(1, 4)
-                reward = math.ceil(1.5 * 30 * target)
-                description = f"Must complete {target} pomodoros of {task_name}"
-            else:
-                target = random.randrange(30, 91, 5)
-                reward = math.ceil(1.5 * target)
-                description = f"Must complete {target} minutes of {task_name}"
-        else:  # task_list
-            task_pool = list(available_task_names) if available_task_names is not None else [task_name]
-            if subtype == 1:
-                target = min(random.randint(1, 5), len(task_pool))
-                reward = 30 * target
-                description = f"Must complete {target} tasks"
-                tasks = self._choose_task_names(task_name, task_pool, target)
-            else:
-                target = random.randrange(15, 46, 5)
-                reward = target
-                description = f"Must complete {target} minutes of tasks"
-                tasks = task_pool
+        elif subtype == 1:
+            target = random.randint(1, 4)
+            reward = math.ceil(1.5 * 30 * target)
+            description = f"Must complete {target} pomodoros of {task_name}"
+        else:
+            target = random.randrange(30, 91, 5)
+            reward = math.ceil(1.5 * target)
+            description = f"Must complete {target} minutes of {task_name}"
 
         return Quest(
             task_name=task_name,
@@ -97,40 +85,81 @@ class QuestManager:
             subtype=subtype,
             target_value=target,
             reward=reward,
-            description=description,
-            tasks=tasks
+            description=description
         )
 
     @staticmethod
-    def _choose_task_names(task_name, available_task_names, count):
-        """Include this quest's task, then randomly fill the remaining slots."""
-        if count <= 0:
+    def _clean_task_names(task_names):
+        if isinstance(task_names, str):
+            task_names = task_names.splitlines()
+        return [task.strip() for task in task_names if task.strip()]
+
+    def _make_task_list_quest(self, tasks):
+        task_names = list(tasks)
+        subtype = random.choice([1, 2])
+        if subtype == 1:
+            target = len(task_names)
+            reward = 30 * target
+            description = f"Must complete {target} tasks"
+        else:
+            target = random.randrange(15, 46, 5)
+            reward = target
+            description = f"Must complete {target} minutes of tasks"
+
+        return Quest(
+            task_name="Task List",
+            quest_type="task_list",
+            subtype=subtype,
+            target_value=target,
+            reward=reward,
+            description=description,
+            tasks=task_names.copy(),
+            source_tasks=task_names
+        )
+
+    def _generate_task_list_quests(self, tasks):
+        """Randomly distribute each saved task into one batch of up to five."""
+        task_pool = self._clean_task_names(tasks)
+        random.shuffle(task_pool)
+        generated = []
+        while task_pool:
+            task_count = min(random.randint(1, 5), len(task_pool))
+            batch = task_pool[:task_count]
+            del task_pool[:task_count]
+            generated.append(self._make_task_list_quest(batch))
+        return generated
+
+    def add_task_list(self, tasks):
+        """Save task lines and add randomized batches to the current quest round."""
+        task_names = self._clean_task_names(tasks)
+        if not task_names:
             return []
 
-        task_pool = list(available_task_names)
-        if task_name in task_pool:
-            task_pool.remove(task_name)
-            selected = [task_name]
-        else:
-            selected = []
+        self.task_catalog.extend(task_names)
+        generated = self._generate_task_list_quests(task_names)
+        self.quests.extend(generated)
+        self.save()
+        return generated
 
-        random.shuffle(task_pool)
-        selected.extend(task_pool[:max(0, count - len(selected))])
-        return selected
+    def replace_task_catalog(self, tasks):
+        """Replace the saved task list and rebuild its current-round quests."""
+        self.task_catalog = self._clean_task_names(tasks)
+        self.quests = [quest for quest in self.quests if quest.quest_type != "task_list"]
+        generated = self._generate_task_list_quests(self.task_catalog)
+        self.quests.extend(generated)
+        random.shuffle(self.quests)
+        self.save()
 
     def add_quest(self, task_name, quest_type):
-        """Add a quest with a randomly selected goal subtype and target."""
+        """Add a main/side quest; task lists are created with add_task_list."""
         task_name = task_name.strip()
         if not task_name:
             return None
-
-        available_task_names = [
-            quest.task_name for quest in self.quests
-            if quest.quest_type == "task_list"
-        ]
         if quest_type == "task_list":
-            available_task_names.append(task_name)
-        quest = self._make_quest_variant(task_name, quest_type, available_task_names)
+            generated = self.add_task_list([task_name])
+            return generated[0] if generated else None
+
+        quest = self._make_quest_variant(task_name, quest_type)
         if quest is None:
             return None
         self.quests.append(quest)
@@ -138,34 +167,26 @@ class QuestManager:
         return quest
 
     def _start_new_iteration(self):
-        """Reroll goals and order without changing each quest's task or category."""
+        """Reroll main/side goals and repartition saved tasks for a new round."""
         previous_order = tuple(id(quest) for quest in self.quests)
-        available_task_names = [
-            quest.task_name for quest in self.quests
-            if quest.quest_type == "task_list"
+        main_side_quests = [
+            quest for quest in self.quests
+            if quest.quest_type in ("main", "side")
         ]
-        for quest in self.quests:
-            new_variant = self._make_quest_variant(
-                quest.task_name,
-                quest.quest_type,
-                available_task_names
-            )
-            if new_variant is None:
-                continue
+        for quest in main_side_quests:
+            new_variant = self._make_quest_variant(quest.task_name, quest.quest_type)
             while (new_variant.subtype, new_variant.target_value) == (quest.subtype, quest.target_value):
-                new_variant = self._make_quest_variant(
-                    quest.task_name,
-                    quest.quest_type,
-                    available_task_names
-                )
+                new_variant = self._make_quest_variant(quest.task_name, quest.quest_type)
             quest.subtype = new_variant.subtype
             quest.target_value = new_variant.target_value
             quest.reward = new_variant.reward
             quest.description = new_variant.description
             quest.completed = False
             quest.progress = 0
-            quest.tasks = new_variant.tasks
+            quest.tasks = []
+            quest.source_tasks = []
 
+        self.quests = main_side_quests + self._generate_task_list_quests(self.task_catalog)
         random.shuffle(self.quests)
         while len(self.quests) > 1 and tuple(id(quest) for quest in self.quests) == previous_order:
             random.shuffle(self.quests)
@@ -233,76 +254,38 @@ class QuestManager:
 
     def delete_quest(self, index):
         if 0 <= index < len(self.quests):
+            quest = self.quests[index]
+            if quest.quest_type == "task_list":
+                for task in quest.source_tasks:
+                    try:
+                        self.task_catalog.remove(task)
+                    except ValueError:
+                        pass
             del self.quests[index]
             self.save()
 
     def edit_quest(self, index, new_task_name):
         if 0 <= index < len(self.quests):
             q = self.quests[index]
+            if q.quest_type not in ("main", "side"):
+                return
             q.task_name = new_task_name
-            if q.quest_type in ["main", "side"]:
-                if q.subtype == 1:
-                    q.description = f"Must complete {q.target_value} pomodoros of {new_task_name}"
-                else:
-                    q.description = f"Must complete {q.target_value} minutes of {new_task_name}"
+            if q.subtype == 1:
+                q.description = f"Must complete {q.target_value} pomodoros of {new_task_name}"
+            else:
+                q.description = f"Must complete {q.target_value} minutes of {new_task_name}"
             self.save()
 
     def reset_all(self):
         self.quests.clear()
+        self.task_catalog.clear()
         self.coin_amount = 0
         self.save()
-
-    def _repair_saved_task_lists(self):
-        """Replace legacy repeated task rows with distinct available quest tasks."""
-        available_tasks = [
-            quest.task_name for quest in self.quests
-            if quest.quest_type == "task_list"
-        ]
-        available_counts = Counter(available_tasks)
-        changed = False
-
-        for quest in self.quests:
-            if quest.completed or quest.quest_type != "task_list":
-                continue
-
-            current_counts = Counter(quest.tasks)
-            has_unavailable_duplicates = any(
-                count > available_counts[task_name]
-                for task_name, count in current_counts.items()
-            )
-            if quest.subtype == 1:
-                target = min(quest.target_value, len(available_tasks))
-                expected_remaining = max(0, target - quest.progress)
-                if (
-                    not has_unavailable_duplicates
-                    and target == quest.target_value
-                    and len(quest.tasks) == expected_remaining
-                ):
-                    continue
-
-                quest.target_value = target
-                quest.reward = 30 * target
-                quest.description = f"Must complete {target} tasks"
-                if quest.progress >= target:
-                    quest.completed = True
-                    quest.tasks = []
-                    self.coin_amount += quest.reward
-                elif quest.progress == 0:
-                    quest.tasks = self._choose_task_names(quest.task_name, available_tasks, expected_remaining)
-                else:
-                    task_pool = available_tasks.copy()
-                    random.shuffle(task_pool)
-                    quest.tasks = task_pool[:expected_remaining]
-                changed = True
-            elif has_unavailable_duplicates:
-                quest.tasks = available_tasks.copy()
-                changed = True
-
-        return changed
 
     def save(self):
         data = {
             "coin_amount": self.coin_amount,
+            "task_catalog": self.task_catalog,
             "quests": [q.to_dict() for q in self.quests]
         }
         os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
@@ -316,13 +299,31 @@ class QuestManager:
             with open(DATA_FILE, "r") as f:
                 data = json.load(f)
             self.coin_amount = data.get("coin_amount", 0)
-            self.quests = [Quest.from_dict(q) for q in data.get("quests", [])]
-            repaired_task_lists = self._repair_saved_task_lists()
-            if self.quests and all(q.completed for q in self.quests):
+            loaded_quests = [Quest.from_dict(q) for q in data.get("quests", [])]
+            migrated_task_lists = "task_catalog" not in data
+            loaded_iteration_complete = bool(loaded_quests) and all(q.completed for q in loaded_quests)
+            if migrated_task_lists:
+                self.task_catalog = [
+                    quest.task_name for quest in loaded_quests
+                    if quest.quest_type == "task_list"
+                ]
+                self.quests = [
+                    quest for quest in loaded_quests
+                    if quest.quest_type != "task_list"
+                ]
+                self.quests.extend(self._generate_task_list_quests(self.task_catalog))
+            else:
+                self.task_catalog = self._clean_task_names(data.get("task_catalog") or [])
+                self.quests = loaded_quests
+
+            if (self.quests and all(q.completed for q in self.quests)) or (
+                migrated_task_lists and loaded_iteration_complete
+            ):
                 self._start_new_iteration()
-            elif repaired_task_lists:
+            elif migrated_task_lists:
                 self.save()
         except Exception as e:
             print(f"Error loading save: {e}")
             self.quests = []
+            self.task_catalog = []
             self.coin_amount = 0
