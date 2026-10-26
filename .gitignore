@@ -18,6 +18,9 @@ data/*.json
 .DS_Store
 Thumbs.db
 
+# Pseudocode
+pseudocode.txt
+
 # Audio / large assets (optional – remove these lines if you want to push music)
 # assets/music/
 # assets/sounds/
