@@ -5,14 +5,15 @@ import random
 from constants import DATA_FILE
 
 class Quest:
-    def __init__(self, name, quest_type, subtype, target_value, reward, completed=False):
+    def __init__(self, name, quest_type, subtype, target_value, reward, completed=False, tasks=None):
         self.name = name
-        self.quest_type = quest_type      # "main", "side", "task_list"
-        self.subtype = subtype          # 1 = pomodoros, 2 = minutes
+        self.quest_type = quest_type
+        self.subtype = subtype
         self.target_value = target_value
         self.reward = reward
         self.completed = completed
         self.progress = 0
+        self.tasks = tasks or []          # for task_list quests
 
     def to_dict(self):
         return {
@@ -22,7 +23,8 @@ class Quest:
             "target_value": self.target_value,
             "reward": self.reward,
             "completed": self.completed,
-            "progress": self.progress
+            "progress": self.progress,
+            "tasks": self.tasks
         }
 
     @staticmethod
@@ -33,7 +35,8 @@ class Quest:
             data["subtype"],
             data["target_value"],
             data["reward"],
-            data.get("completed", False)
+            data.get("completed", False),
+            data.get("tasks", [])
         )
         q.progress = data.get("progress", 0)
         return q
@@ -45,7 +48,7 @@ class QuestManager:
         self.coin_amount = 0
         self.load()
 
-    def add_quest(self, name, quest_type, subtype):
+    def add_quest(self, name, quest_type, subtype, tasks=None):
         if quest_type == "main":
             if subtype == 1:
                 n = random.randint(1, 2)
@@ -74,7 +77,7 @@ class QuestManager:
                 reward = t
                 target = t
 
-        quest = Quest(name, quest_type, subtype, target, reward)
+        quest = Quest(name, quest_type, subtype, target, reward, tasks=tasks or [])
         self.quests.append(quest)
         self.save()
         return quest
@@ -89,11 +92,9 @@ class QuestManager:
         return None
 
     def add_progress(self, amount):
-        """Add progress to current quest. Returns coins earned if completed."""
         q = self.get_current_quest()
         if not q:
             return 0
-
         q.progress += amount
         if q.progress >= q.target_value:
             q.completed = True
@@ -102,6 +103,16 @@ class QuestManager:
             return q.reward
         self.save()
         return 0
+
+    def delete_quest(self, index):
+        if 0 <= index < len(self.quests):
+            del self.quests[index]
+            self.save()
+
+    def edit_quest(self, index, new_name):
+        if 0 <= index < len(self.quests):
+            self.quests[index].name = new_name
+            self.save()
 
     def reset_all(self):
         self.quests.clear()
