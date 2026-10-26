@@ -69,6 +69,7 @@ def main():
     pause_timer_btn = Button(0, 0, 120, 40, "Pause")
     stop_timer_btn = Button(0, 0, 120, 40, "Stop")
     quest_window_rect = pygame.Rect(SCREEN_WIDTH // 2 - 280, 80, 560, 520)
+    pause_quests_button = Button(0, 0, 160, 40, "Pause Quests")
     quest_list_visible_rows = 12
 
     def quest_list_row_rect(visible_index):
@@ -88,16 +89,25 @@ def main():
     rebuild_music_list()
 
     def update_quest_button():
-        q = quest_manager.get_current_quest()
-        if q:
-            quest_button.set_text(q.description)
+        if quest_manager.quests_paused:
+            quest_button.set_text("Quests paused")
         else:
-            quest_button.set_text("No Quest Available")
+            q = quest_manager.get_current_quest()
+            if q:
+                quest_button.set_text(q.description)
+            else:
+                quest_button.set_text("No Quest Available")
+
+    def update_pause_quests_button():
+        pause_quests_button.set_text(
+            "Start Quests" if quest_manager.quests_paused else "Pause Quests"
+        )
 
     def task_panel_top():
         return max(80, quest_button.rect.bottom + 10)
 
     update_quest_button()
+    update_pause_quests_button()
 
     running = True
     while running:
@@ -112,6 +122,7 @@ def main():
             if event.type == pygame.KEYDOWN and event.key == pygame.K_DELETE:
                 quest_manager.reset_all()
                 update_quest_button()
+                update_pause_quests_button()
                 print("All data reset!")
 
             # Main buttons
@@ -200,7 +211,11 @@ def main():
             # Quest creation
             if show_quest_window:
                 if not creating_quest:
-                    if not context_menu_was_open and shuffle_button.is_clicked(event):
+                    if not context_menu_was_open and pause_quests_button.is_clicked(event):
+                        quest_manager.toggle_quests_paused()
+                        update_quest_button()
+                        update_pause_quests_button()
+                    elif not context_menu_was_open and shuffle_button.is_clicked(event):
                         quest_manager.shuffle_quests()
                         update_quest_button()
                     elif not context_menu_was_open and add_button.is_clicked(event):
@@ -251,7 +266,7 @@ def main():
 
             # Clicking tasks in the task list (right panel)
             current = quest_manager.get_current_quest()
-            if current and current.quest_type == "task_list" and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if not quest_manager.quests_paused and current and current.quest_type == "task_list" and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 y = task_panel_top() + 45
                 for i in range(len(current.tasks)):
                     checkbox_rect = pygame.Rect(SCREEN_WIDTH - 260, y, 20, 20)
@@ -293,7 +308,7 @@ def main():
             if music_player.is_playing:
                 music_player.stop()
 
-            if timer.just_finished_study:
+            if timer.just_finished_study and not quest_manager.quests_paused:
                 q = quest_manager.get_current_quest()
                 if q and (q.quest_type != "task_list" or q.subtype == 2):
                     if q.subtype == 1:
@@ -323,6 +338,7 @@ def main():
             else:
                 add_button.update(mouse_pos)
                 shuffle_button.update(mouse_pos)
+                pause_quests_button.update(mouse_pos)
 
         if show_timer_window:
             start_timer_btn.update(mouse_pos)
@@ -348,7 +364,7 @@ def main():
 
         # ===== Task List Panel (right side) =====
         current = quest_manager.get_current_quest()
-        if current and current.quest_type == "task_list" and current.tasks:
+        if not quest_manager.quests_paused and current and current.quest_type == "task_list" and current.tasks:
             panel_top = task_panel_top()
             panel = pygame.Rect(SCREEN_WIDTH - 280, panel_top, 260, 420)
             pygame.draw.rect(screen, (20, 20, 30), panel, border_radius=10)
@@ -373,7 +389,9 @@ def main():
             pygame.draw.rect(screen, LIGHT_GRAY, window, 2, border_radius=14)
 
             current = quest_manager.get_current_quest()
-            if current:
+            if quest_manager.quests_paused:
+                info = "Quests paused"
+            elif current:
                 info = f"Current: {current.description}"
             else:
                 info = "No active quest"
@@ -403,8 +421,13 @@ def main():
                     pygame.draw.rect(screen, LIGHT_GRAY, thumb, border_radius=3)
 
                 add_button.rect.topleft = (window.x + 20, window.bottom - 60)
+                pause_quests_button.rect.topleft = (
+                    window.centerx - pause_quests_button.rect.width // 2,
+                    window.bottom - 60
+                )
                 shuffle_button.rect.topleft = (window.right - 160, window.bottom - 60)
                 add_button.draw(screen)
+                pause_quests_button.draw(screen)
                 shuffle_button.draw(screen)
             else:
                 label = normal_font.render("Type:", True, WHITE)

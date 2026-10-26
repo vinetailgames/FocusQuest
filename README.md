@@ -45,11 +45,13 @@ The main screen shows your coins in the upper left, the Pomodoro timer near the 
 
 Click the current quest button to open the quest list. Click **+ Add Quest** and choose a quest category. For a Main or Side quest, enter one task name. For a Task List, enter one task on each line; press **Enter** to start the next line, then click **Confirm**. Blank lines are ignored.
 
+Use **Pause Quests** at the bottom center of the quest window to pause quest progress. While paused, the current quest display says **Quests paused**, completed study sessions do not add progress, and Task List checkboxes are unavailable. Click **Start Quests** to resume.
+
 - **Main quest** — Use this for your main task. Its goal is randomly set to either 1–2 completed study sessions or 60–180 study minutes, in 5-minute increments. Completing it earns 60 coins per Pomodoro, or 2 coins per minute.
 - **Side quest** — Use this for side work. Its goal is randomly set to either 1–4 completed study sessions or 30–90 study minutes, in 5-minute increments. Completing it earns 45 coins per Pomodoro, or 1.5 coins per minute, rounded up.
 - **Task List** — Use this for smaller tasks. The lines you enter are saved as the task pool. At the start of each quest round, Focus Quest shuffles the pool and splits it into Task List quests containing up to five tasks each. Every task entry is assigned to one quest in that round. Each batch contains the smaller of its random 1–5 task limit and the number of tasks still available. The saved pool is used again in the next round. Each generated quest randomly uses either a task goal or a 15–45 minute goal, in 5-minute increments. Check tasks off in the panel on the right; a quest completes when all its tasks are checked or its minute goal is reached. Task goals earn 30 coins per task; minute goals earn 1 coin per minute.
 
-The timer counts a Pomodoro goal when a study session ends. For minute goals, it counts the configured study-session minutes when that session ends. Break time does not count toward quest progress. When every quest in the current round is complete, Focus Quest keeps the same tasks and categories but randomizes the goals and quest order for the next round.
+The timer counts a Pomodoro goal when a study session ends. For minute goals, it counts the configured study-session minutes when that session ends. Break time does not count toward quest progress. Pausing quests prevents completed study sessions from adding progress. When every quest in the current round is complete, Focus Quest keeps the same tasks and categories but randomizes the goals and quest order for the next round.
 
 In the quest list, left-click a quest to bring it to the front. Use the mouse wheel to browse long lists. Right-click a Main or Side quest to edit or delete it. Editing a Task List opens the saved task pool; deleting one removes its assigned tasks from that pool.
 

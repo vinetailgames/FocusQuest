@@ -53,6 +53,7 @@ class QuestManager:
         self.quests = []
         self.task_catalog = []
         self.coin_amount = 0
+        self.quests_paused = False
         self.load()
 
     def _make_quest_variant(self, task_name, quest_type):
@@ -205,6 +206,11 @@ class QuestManager:
     def get_current_quest(self):
         return next((quest for quest in self.quests if not quest.completed), None)
 
+    def toggle_quests_paused(self):
+        self.quests_paused = not self.quests_paused
+        self.save()
+        return self.quests_paused
+
     def set_current_quest(self, index):
         if 0 <= index < len(self.quests):
             quest = self.quests.pop(index)
@@ -224,6 +230,8 @@ class QuestManager:
         return True
 
     def add_progress(self, amount):
+        if self.quests_paused:
+            return 0
         q = self.get_current_quest()
         if not q:
             return 0
@@ -234,6 +242,8 @@ class QuestManager:
         return 0
 
     def complete_task(self, task_index):
+        if self.quests_paused:
+            return False
         q = self.get_current_quest()
         if q and q.quest_type == "task_list" and 0 <= task_index < len(q.tasks):
             q.tasks.pop(task_index)
@@ -280,12 +290,14 @@ class QuestManager:
         self.quests.clear()
         self.task_catalog.clear()
         self.coin_amount = 0
+        self.quests_paused = False
         self.save()
 
     def save(self):
         data = {
             "coin_amount": self.coin_amount,
             "task_catalog": self.task_catalog,
+            "quests_paused": self.quests_paused,
             "quests": [q.to_dict() for q in self.quests]
         }
         os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
@@ -299,6 +311,7 @@ class QuestManager:
             with open(DATA_FILE, "r") as f:
                 data = json.load(f)
             self.coin_amount = data.get("coin_amount", 0)
+            self.quests_paused = bool(data.get("quests_paused", False))
             loaded_quests = [Quest.from_dict(q) for q in data.get("quests", [])]
             migrated_task_lists = "task_catalog" not in data
             loaded_iteration_complete = bool(loaded_quests) and all(q.completed for q in loaded_quests)
@@ -327,3 +340,4 @@ class QuestManager:
             self.quests = []
             self.task_catalog = []
             self.coin_amount = 0
+            self.quests_paused = False
