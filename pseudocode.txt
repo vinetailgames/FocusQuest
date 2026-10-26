@@ -1,0 +1,135 @@
+Instructions: Use multiple files.
+ - Use a file for constants
+ - Use different files for different methods
+ - Create main.py file to run main game
+ Also, set up github repo and commit for each update made.
+
+ Import pygame
+
+ #"python main.py" to run game
+
+ t = study duration #whole number and divisible by 5
+ n = number of pomodoros
+ coin_amount = 0
+
+Main loop:
+ - as game runs, display textures\background\desk.jpg as background
+ - display music button on bottom left corner{
+    - Show list of music to choose from
+    - Name of song will be same as title of file
+    - e.g. ("Up All Night.mp3" would be displayed as "Up All Night")
+    - One click would play the song
+    - Another click would stop the song
+    - Another click of different song would stop current song and play new song
+ - Currency amount will be shown on top right{
+    format: "Coins: {coin_amount}"
+ }
+ }
+ - display quest at top right corner{
+     - Display text of current quest
+     - Quest name must be finite to not overtake space
+     - Button size changes with text length
+     - Clicking quest will display settings window{
+        - There are 3 different types of quests
+        - Click plus button to add a quest, you can cancel quest too
+        - Clicking plus button will desplay settings to set up quest
+        - right clicking on quest in list will provide option to edit or delete quest
+        - First type of quest is the main quest{
+            - This quest type has highest priority
+            - Type in name of quest and confirm/cancel using buttons bottom right
+            - Will choose type = 1 or type = 2
+            - If type = 1{
+                - n will be randomly chosen between [1, 2]
+                - Quest: "Must complete {n} pomodoros of {task.name}
+                - Rewarded after completing {n} pomodoros{
+                    - coin_amount += 2*30*n
+                }
+            }
+            - If type = 2{
+                - t will be randomly selected between [60, 180]
+                - Quest: "Must complete {t} minutes of {task.name}"
+                - Rewarded after completing {t} minutes in total time{
+                    - coin_amount += 2*t
+                }
+            }
+            coin_amount += 
+        }
+        - Second type of quest is the side quest{
+            - This quest type has second highest priority
+            - Type in name of quest and confirm/cancel using buttons bottom right
+            - Will choose type = 1 or type = 2
+            - If type = 1{
+                - n will be randomly chosen between [1, 4]
+                - Quest: "Must complete {n} pomodoros of {task.name}
+                - Rewarded after completing {n} pomodoros{
+                    - coin_amount += 1.5*30*n #rounded to highest integer
+                }
+            }
+            - If type = 2{
+                - t will be randomly selected between [30, 90]
+                - Quest: "Must complete {t} minutes of {task.name}"
+                - Rewarded after completing {t} minutes in total time{
+                    - coin_amount += 1.5*t #rounded to highest integer
+                }
+            }
+        }
+        - Third type of quest is the task list quest{
+            - During this quest type, a task list is shown right side of screen
+            - task in task list can be checked off using check box on right
+            - task will disappear after clicking check box
+            - This quest type is lowest priority
+            - Must show up after no more than 2 other quests if any available
+            - Type in name of quest and multiplier, then confirm/cancel using buttons bottom right
+            # multiplier is int value indicating how many times this task can be done
+            - Will choose type = 1 or type = 2
+            - If type = 1{
+                - n will be randomly chosen between [1, 5]
+                - m = current number of tasks_list_quest
+                - n = min(n, m)
+                - Quest: "Must complete {n} tasks"
+                - Choose {n} random tasks and list them in task list on right
+                - Rewarded after completing {n} tasks{
+                    - coin_amount += 30*n
+                }
+            }
+            - If type = 2{
+                - t will be randomly selected between [15, 45]
+                - Quest: "Must complete {t} minutes of tasks"
+                - Display all remaining tasks in task list on right
+                - Rewarded after completing {t} minutes of tasks{
+                    - coin_amount += t
+                }
+            }
+        }
+        - We also have meal and nap task
+        - After current quest is done, next quest starts
+        - If no quest is available, button simply says "No quest available"
+        - Quest is selected at random
+        - Every quest done will be set as (task_completed = true)
+        - If task_completed = true{
+            - Ignore quest until next iteration of quest loop
+            - If all quests completed, set all task_completed = false to reset loop
+        }
+     }
+      - Pomodoro timer button will be displayed at top{
+         - when clicked, displays window to input time for study and break
+         - Cancel/start button on bottom right of setting window
+         - Current time is displayed on button in format "min:sec"
+         - If button pressed again, you get option to pause or stop time
+         - Simply click (x) in top right to exit window
+         - Refers to n and t variables calculated by current quest
+         - If t = total pomodoro time completed since quest{
+            trigger reward
+         }
+         - If n = total pomodoros completed{
+            If quest_type = task_list_quest{
+                pass
+            }
+            else{
+                trigger reward
+            }
+         }
+      }
+     - All information will be saved in separate file so currency and quest data is saved
+     - Hold del button to reset currency and delete all quests 
+ }
