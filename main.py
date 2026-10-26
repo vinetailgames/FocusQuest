@@ -35,37 +35,33 @@ def main():
     normal_font = pygame.font.SysFont(None, 26)
     small_font = pygame.font.SysFont(None, 22)
 
-    # Main buttons
     music_button = Button(20, SCREEN_HEIGHT - 60, 160, 40, "Music")
-    quest_button = Button(SCREEN_WIDTH - 220, 20, 200, 40, "No Quest")
+    quest_button = Button(
+        SCREEN_WIDTH - 280, 20, 260, 40, "No Quest",
+        wrap=True, auto_height=True
+    )
     timer_button = Button(SCREEN_WIDTH // 2 - 90, 20, 180, 50, "25:00")
 
-    # States
     show_music_list = False
     show_quest_window = False
     show_timer_window = False
     music_buttons = []
     creating_quest = False
     editing_index = None
-    context_menu = None          # (x, y, index)
+    context_menu = None
     selected_type = "main"
-    selected_subtype = 1
 
     name_input = InputBox(0, 0, 400, 40)
     study_input = InputBox(0, 0, 80, 36, "25")
     break_input = InputBox(0, 0, 80, 36, "5")
 
-    # Quest window buttons
     add_button = Button(0, 0, 140, 40, "+ Add Quest")
     type_main_btn = Button(0, 0, 120, 36, "Main")
     type_side_btn = Button(0, 0, 120, 36, "Side")
     type_task_btn = Button(0, 0, 140, 36, "Task List")
-    sub_pomodoro_btn = Button(0, 0, 140, 36, "Pomodoros")
-    sub_minutes_btn = Button(0, 0, 140, 36, "Minutes")
     confirm_btn = Button(0, 0, 120, 40, "Confirm")
     cancel_btn = Button(0, 0, 120, 40, "Cancel")
 
-    # Timer window buttons
     start_timer_btn = Button(0, 0, 120, 40, "Start")
     pause_timer_btn = Button(0, 0, 120, 40, "Pause")
     stop_timer_btn = Button(0, 0, 120, 40, "Stop")
@@ -82,10 +78,12 @@ def main():
     def update_quest_button():
         q = quest_manager.get_current_quest()
         if q:
-            text = q.name if len(q.name) <= 18 else q.name[:16] + "..."
-            quest_button.set_text(text)
+            quest_button.set_text(q.description)
         else:
             quest_button.set_text("No Quest Available")
+
+    def task_panel_top():
+        return max(80, quest_button.rect.bottom + 10)
 
     update_quest_button()
 
@@ -98,18 +96,16 @@ def main():
             if event.type == pygame.QUIT:
                 running = False
 
-            # Resume music after alarm
             if event.type == pygame.USEREVENT + 1:
                 pygame.mixer.music.unpause()
                 pygame.time.set_timer(pygame.USEREVENT + 1, 0)
 
-            # Hold Delete to reset everything
             if event.type == pygame.KEYDOWN and event.key == pygame.K_DELETE:
                 quest_manager.reset_all()
                 update_quest_button()
                 print("All data reset!")
 
-            # ===== Main buttons =====
+            # Main buttons
             if music_button.is_clicked(event):
                 show_music_list = not show_music_list
                 show_quest_window = False
@@ -131,54 +127,49 @@ def main():
                 creating_quest = False
                 context_menu = None
 
-            # Music list
             if show_music_list:
                 for i, btn in enumerate(music_buttons):
                     if btn.is_clicked(event):
                         music_player.play(i)
 
-            # ===== Quest list interactions =====
-            if show_quest_window and not creating_quest:
-                # Left click → select quest as current
-                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                    y = 140
-                    for i, q in enumerate(quest_manager.quests):
-                        rect = pygame.Rect(SCREEN_WIDTH // 2 - 255, y, 500, 30)
-                        if rect.collidepoint(event.pos):
-                            quest_manager.set_current_quest(i)
-                            update_quest_button()
-                            break
-                        y += 32
+            # Left click on quest list → select
+            if show_quest_window and not creating_quest and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                y = 145
+                for i, q in enumerate(quest_manager.quests):
+                    rect = pygame.Rect(SCREEN_WIDTH // 2 - 255, y, 510, 30)
+                    if rect.collidepoint(event.pos):
+                        quest_manager.set_current_quest(i)
+                        update_quest_button()
+                        break
+                    y += 32
 
-                # Right click → context menu
-                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
-                    y = 140
-                    for i, q in enumerate(quest_manager.quests):
-                        rect = pygame.Rect(SCREEN_WIDTH // 2 - 255, y, 500, 30)
-                        if rect.collidepoint(event.pos):
-                            context_menu = (event.pos[0], event.pos[1], i)
-                            break
-                        y += 32
+            # Right click → context menu
+            if show_quest_window and not creating_quest and event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
+                y = 145
+                for i, q in enumerate(quest_manager.quests):
+                    rect = pygame.Rect(SCREEN_WIDTH // 2 - 255, y, 510, 30)
+                    if rect.collidepoint(event.pos):
+                        context_menu = (event.pos[0], event.pos[1], i)
+                        break
+                    y += 32
 
             # Context menu actions
             if context_menu and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 mx, my, idx = context_menu
                 if pygame.Rect(mx, my, 120, 30).collidepoint(event.pos):
-                    # Edit
                     editing_index = idx
-                    name_input.text = quest_manager.quests[idx].name
+                    name_input.text = quest_manager.quests[idx].task_name
                     name_input.txt_surface = name_input.font.render(name_input.text, True, WHITE)
                     creating_quest = True
                     context_menu = None
                 elif pygame.Rect(mx, my + 30, 120, 30).collidepoint(event.pos):
-                    # Delete
                     quest_manager.delete_quest(idx)
                     update_quest_button()
                     context_menu = None
                 else:
                     context_menu = None
 
-            # ===== Quest creation / editing =====
+            # Quest creation
             if show_quest_window:
                 if not creating_quest:
                     if add_button.is_clicked(event):
@@ -187,28 +178,16 @@ def main():
                         name_input.text = ""
                         name_input.txt_surface = name_input.font.render("", True, WHITE)
                 else:
-                    if type_main_btn.is_clicked(event):
-                        selected_type = "main"
-                    if type_side_btn.is_clicked(event):
-                        selected_type = "side"
-                    if type_task_btn.is_clicked(event):
-                        selected_type = "task_list"
-                    if sub_pomodoro_btn.is_clicked(event):
-                        selected_subtype = 1
-                    if sub_minutes_btn.is_clicked(event):
-                        selected_subtype = 2
-
+                    if type_main_btn.is_clicked(event): selected_type = "main"
+                    if type_side_btn.is_clicked(event): selected_type = "side"
+                    if type_task_btn.is_clicked(event): selected_type = "task_list"
                     result = name_input.handle_event(event)
                     if result == "enter" or confirm_btn.is_clicked(event):
                         if name_input.text.strip():
                             if editing_index is not None:
                                 quest_manager.edit_quest(editing_index, name_input.text.strip())
                             else:
-                                quest_manager.add_quest(
-                                    name_input.text.strip(),
-                                    selected_type,
-                                    selected_subtype
-                                )
+                                quest_manager.add_quest(name_input.text.strip(), selected_type)
                             update_quest_button()
                             creating_quest = False
                             editing_index = None
@@ -216,7 +195,19 @@ def main():
                         creating_quest = False
                         editing_index = None
 
-            # ===== Timer window =====
+            # Clicking tasks in the task list (right panel)
+            current = quest_manager.get_current_quest()
+            if current and current.quest_type == "task_list" and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                y = task_panel_top() + 45
+                for i in range(len(current.tasks)):
+                    checkbox_rect = pygame.Rect(SCREEN_WIDTH - 260, y, 20, 20)
+                    if checkbox_rect.collidepoint(event.pos):
+                        quest_manager.complete_task(i)
+                        update_quest_button()
+                        break
+                    y += 32
+
+            # Timer window
             if show_timer_window:
                 study_input.handle_event(event)
                 break_input.handle_event(event)
@@ -238,25 +229,24 @@ def main():
                         timer.pause()
 
                 if stop_timer_btn.is_clicked(event):
-                    timer.stop()   # no alarm
+                    timer.stop()
 
-        # ===== Update timer =====
+        # Update timer
         timer.update(dt)
         timer_button.set_text(timer.get_time_str())
 
-        # Reward when study session finishes
         if timer.just_finished and not timer.is_break:
             q = quest_manager.get_current_quest()
-            if q:
-                if q.subtype == 1:  # pomodoros
+            if q and (q.quest_type != "task_list" or q.subtype == 2):
+                if q.subtype == 1:
                     earned = quest_manager.add_progress(1)
-                else:               # minutes
+                else:
                     earned = quest_manager.add_progress(timer.study_seconds // 60)
                 if earned > 0:
                     print(f"Quest completed! +{earned} coins")
                     update_quest_button()
 
-        # ===== Update UI hover =====
+        # Update hover
         music_button.update(mouse_pos)
         quest_button.update(mouse_pos)
         timer_button.update(mouse_pos)
@@ -271,8 +261,6 @@ def main():
                 type_main_btn.update(mouse_pos)
                 type_side_btn.update(mouse_pos)
                 type_task_btn.update(mouse_pos)
-                sub_pomodoro_btn.update(mouse_pos)
-                sub_minutes_btn.update(mouse_pos)
                 confirm_btn.update(mouse_pos)
                 cancel_btn.update(mouse_pos)
 
@@ -284,7 +272,7 @@ def main():
         # ===== DRAW =====
         screen.blit(background, (0, 0))
 
-        # Coins (top left)
+        # Coins
         coin_text = coin_font.render(f"Coins: {quest_manager.coin_amount}", True, GOLD)
         coin_rect = coin_text.get_rect(topleft=(20, 20))
         pygame.draw.rect(screen, (0, 0, 0, 180), coin_rect.inflate(20, 10), border_radius=6)
@@ -298,19 +286,25 @@ def main():
             for btn in music_buttons:
                 btn.draw(screen)
 
-        # Task list panel (right side)
+        # ===== Task List Panel (right side) =====
         current = quest_manager.get_current_quest()
-        if current and current.quest_type == "task_list":
-            panel = pygame.Rect(SCREEN_WIDTH - 280, 80, 260, 400)
+        if current and current.quest_type == "task_list" and current.tasks:
+            panel_top = task_panel_top()
+            panel = pygame.Rect(SCREEN_WIDTH - 280, panel_top, 260, 420)
             pygame.draw.rect(screen, (20, 20, 30), panel, border_radius=10)
             pygame.draw.rect(screen, LIGHT_GRAY, panel, 2, border_radius=10)
+
             title = small_font.render("Task List", True, WHITE)
-            screen.blit(title, (panel.x + 15, panel.y + 10))
-            y = panel.y + 45
-            for task in current.tasks:
-                label = small_font.render(f"• {task}", True, WHITE)
-                screen.blit(label, (panel.x + 15, y))
-                y += 28
+            screen.blit(title, (panel.x + 15, panel.y + 12))
+
+            y = panel_top + 45
+            for i, task in enumerate(current.tasks):
+                # Checkbox
+                checkbox = pygame.Rect(SCREEN_WIDTH - 260, y, 20, 20)
+                pygame.draw.rect(screen, WHITE, checkbox, 2)
+                label = small_font.render(task, True, WHITE)
+                screen.blit(label, (SCREEN_WIDTH - 230, y + 1))
+                y += 32
 
         # ===== Quest Window =====
         if show_quest_window:
@@ -318,29 +312,28 @@ def main():
             pygame.draw.rect(screen, (25, 25, 35), window, border_radius=14)
             pygame.draw.rect(screen, LIGHT_GRAY, window, 2, border_radius=14)
 
-            # Show full current quest info
             current = quest_manager.get_current_quest()
             if current:
-                info = f"Current: {current.name}  ({current.progress}/{current.target_value})"
+                info = f"Current: {current.description}"
             else:
                 info = "No active quest"
-            title = normal_font.render(info, True, GOLD)
+            title = normal_font.render(info[:55], True, GOLD)
             screen.blit(title, (window.x + 20, window.y + 12))
 
             if not creating_quest:
                 y = window.y + 55
-                for i, q in enumerate(quest_manager.quests):
+                for q in quest_manager.quests:
                     status = "✓" if q.completed else "○"
                     color = GREEN if q.completed else WHITE
-                    text = f"{status} [{q.quest_type}] {q.name}"
-                    label = normal_font.render(text[:48], True, color)
+                    text = f"{status} {q.description}"
+                    label = normal_font.render(text[:50], True, color)
                     screen.blit(label, (window.x + 25, y))
                     y += 32
 
                 add_button.rect.topleft = (window.x + 20, window.bottom - 60)
                 add_button.draw(screen)
             else:
-                label = normal_font.render("Quest Name:", True, WHITE)
+                label = normal_font.render("Task Name:", True, WHITE)
                 screen.blit(label, (window.x + 30, window.y + 70))
                 name_input.rect.topleft = (window.x + 30, window.y + 100)
                 name_input.draw(screen)
@@ -360,34 +353,20 @@ def main():
                 type_side_btn.draw(screen)
                 type_task_btn.draw(screen)
 
-                label = normal_font.render("Goal:", True, WHITE)
-                screen.blit(label, (window.x + 30, window.y + 250))
-
-                sub_pomodoro_btn.rect.topleft = (window.x + 30, window.y + 280)
-                sub_minutes_btn.rect.topleft = (window.x + 180, window.y + 280)
-
-                sub_pomodoro_btn.bg_color = GOLD if selected_subtype == 1 else DARK_GRAY
-                sub_minutes_btn.bg_color = GOLD if selected_subtype == 2 else DARK_GRAY
-
-                sub_pomodoro_btn.draw(screen)
-                sub_minutes_btn.draw(screen)
-
                 confirm_btn.rect.topleft = (window.x + 30, window.bottom - 60)
                 cancel_btn.rect.topleft = (window.x + 170, window.bottom - 60)
                 confirm_btn.draw(screen)
                 cancel_btn.draw(screen)
 
-        # Context menu (Edit / Delete)
+        # Context menu
         if context_menu:
             mx, my, _ = context_menu
             pygame.draw.rect(screen, (40, 40, 50), (mx, my, 120, 60), border_radius=6)
             pygame.draw.rect(screen, LIGHT_GRAY, (mx, my, 120, 60), 1, border_radius=6)
-            edit_label = small_font.render("Edit", True, WHITE)
-            del_label = small_font.render("Delete", True, WHITE)
-            screen.blit(edit_label, (mx + 15, my + 8))
-            screen.blit(del_label, (mx + 15, my + 35))
+            screen.blit(small_font.render("Edit", True, WHITE), (mx + 15, my + 8))
+            screen.blit(small_font.render("Delete", True, WHITE), (mx + 15, my + 35))
 
-        # ===== Timer Window =====
+        # Timer window
         if show_timer_window:
             window = pygame.Rect(SCREEN_WIDTH // 2 - 190, 120, 380, 300)
             pygame.draw.rect(screen, (25, 25, 35), window, border_radius=14)
