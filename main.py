@@ -4,9 +4,9 @@ import sys
 import os
 from constants import *
 from ui import Button
+from music_player import MusicPlayer
 
 def load_background():
-    """Safely load background. Falls back to solid color if file is missing."""
     try:
         if os.path.exists(BACKGROUND_PATH):
             img = pygame.image.load(BACKGROUND_PATH).convert()
@@ -16,29 +16,43 @@ def load_background():
     except Exception as e:
         print(f"Error loading background: {e}")
 
-    # Fallback surface
     surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
     surface.fill(DARK_GRAY)
     return surface
 
 def main():
     pygame.init()
+    pygame.mixer.init()
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     pygame.display.set_caption(TITLE)
     clock = pygame.time.Clock()
 
-    # Load background safely
     background = load_background()
+    music_player = MusicPlayer()
 
-    # Game state
     coin_amount = 0
-
-    # Fonts
     coin_font = pygame.font.SysFont(None, FONT_LARGE)
 
-    # Example button (we'll use this pattern later for music/quest/timer)
-    # For now just a placeholder so the structure is ready
-    test_button = Button(20, SCREEN_HEIGHT - 60, 160, 40, "Music")
+    # Music button (bottom left)
+    music_button = Button(20, SCREEN_HEIGHT - 60, 160, 40, "Music")
+
+    # Music list state
+    show_music_list = False
+    music_buttons = []
+
+    def rebuild_music_list():
+        nonlocal music_buttons
+        music_buttons.clear()
+        names = music_player.get_song_names()
+        print(f"Found songs: {names}")  # debug
+
+        for i, name in enumerate(names):
+            # Place list ABOVE the Music button
+            y = SCREEN_HEIGHT - 110 - (i * 48)
+            btn = Button(20, y, 300, 42, name, font_size=24)
+            music_buttons.append(btn)
+
+    rebuild_music_list()
 
     running = True
     while running:
@@ -48,29 +62,45 @@ def main():
             if event.type == pygame.QUIT:
                 running = False
 
-            if test_button.is_clicked(event):
-                print("Music button clicked (placeholder)")
+            # Toggle music list
+            if music_button.is_clicked(event):
+                show_music_list = not show_music_list
+                print(f"Music list visible: {show_music_list}")
+
+            # Click on a song
+            if show_music_list:
+                for i, btn in enumerate(music_buttons):
+                    if btn.is_clicked(event):
+                        music_player.play(i)
 
         # Update
-        test_button.update(mouse_pos)
+        music_button.update(mouse_pos)
+        if show_music_list:
+            for btn in music_buttons:
+                btn.update(mouse_pos)
 
         # Draw
         screen.blit(background, (0, 0))
 
-        # Coin counter (top right)
+        # Coin counter (top left)
         coin_text = coin_font.render(f"Coins: {coin_amount}", True, GOLD)
         coin_rect = coin_text.get_rect(topleft=(20, 20))
-        # Small background for readability
         bg_rect = coin_rect.inflate(20, 10)
         pygame.draw.rect(screen, (0, 0, 0, 180), bg_rect, border_radius=6)
         screen.blit(coin_text, coin_rect)
 
-        # Draw button
-        test_button.draw(screen)
+        # Music button
+        music_button.draw(screen)
+
+        # Music list (drawn on top)
+        if show_music_list:
+            for btn in music_buttons:
+                btn.draw(screen)
 
         pygame.display.flip()
         clock.tick(FPS)
 
+    music_player.stop()
     pygame.quit()
     sys.exit()
 
