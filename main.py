@@ -689,6 +689,12 @@ def main():
                 screen.blit(message_surface, (
                     announcements_rect.x + 30, announcements_rect.y + 112
                 ))
+            elif update_snapshot["check_error"]:
+                message = "GitHub announcements are unavailable"
+                message_surface = normal_font.render(message, True, WHITE)
+                screen.blit(message_surface, (
+                    announcements_rect.x + 30, announcements_rect.y + 112
+                ))
             elif update_snapshot["available_version"]:
                 message = (
                     f"Update {update_snapshot['available_version']} "

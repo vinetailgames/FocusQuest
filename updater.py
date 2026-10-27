@@ -9,6 +9,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
@@ -68,6 +69,35 @@ def _git_head(root):
         return None
 
 
+def _is_ancestor(root, ancestor, descendant):
+    if not (root / ".git").exists():
+        return False
+    try:
+        result = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", ancestor, descendant],
+            cwd=root,
+            capture_output=True,
+            timeout=3
+        )
+        return result.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _compare_versions(left, right):
+    """Compare numeric version components, such as v.0.2 and v.0.10."""
+    import re
+
+    left_parts = [int(part) for part in re.findall(r"\d+", left)]
+    right_parts = [int(part) for part in re.findall(r"\d+", right)]
+    if not left_parts or not right_parts:
+        return 0
+    width = max(len(left_parts), len(right_parts))
+    left_parts.extend([0] * (width - len(left_parts)))
+    right_parts.extend([0] * (width - len(right_parts)))
+    return (left_parts > right_parts) - (left_parts < right_parts)
+
+
 def _request_json(url):
     request = urllib.request.Request(
         url,
@@ -80,7 +110,7 @@ def _request_json(url):
         return json.loads(response.read().decode("utf-8"))
 
 
-def _latest_github_version():
+def _latest_github_version(local_version):
     commit_url = (
         f"https://api.github.com/repos/{GITHUB_REPOSITORY}"
         f"/commits/{GITHUB_BRANCH}"
@@ -94,7 +124,13 @@ def _latest_github_version():
         f"https://raw.githubusercontent.com/{GITHUB_REPOSITORY}/"
         f"{commit}/version.json"
     )
-    version_payload = _request_json(version_url)
+    try:
+        version_payload = _request_json(version_url)
+    except urllib.error.HTTPError as error:
+        if error.code != 404:
+            raise
+        # Older GitHub revisions may predate the addition of version.json.
+        return local_version, commit
     version = version_payload.get("version")
     if not isinstance(version, str) or not version.strip():
         raise ValueError("GitHub version.json has no version")
@@ -117,6 +153,7 @@ class UpdateService:
         self._stop = threading.Event()
         self._snapshot = {
             "connection_available": None,
+            "check_error": None,
             "local_version": self.local_version,
             "available_version": None,
             "available_commit": None
@@ -149,7 +186,7 @@ class UpdateService:
 
     def _check_once(self):
         try:
-            latest_version, latest_commit = _latest_github_version()
+            latest_version, latest_commit = _latest_github_version(self.local_version)
             if self.local_commit is None and latest_version == self.local_version:
                 # A source ZIP has no Git metadata. Record its first online baseline.
                 self.local_commit = latest_commit
@@ -158,21 +195,53 @@ class UpdateService:
                 except OSError:
                     pass
 
+            remote_is_older = _compare_versions(
+                latest_version, self.local_version
+            ) < 0
+            local_is_ahead = (
+                self.local_commit is not None
+                and _is_ancestor(
+                    self.app_root, latest_commit, self.local_commit
+                )
+            )
             update_available = (
-                latest_version != self.local_version
-                or (self.local_commit is not None and latest_commit != self.local_commit)
+                not remote_is_older
+                and not local_is_ahead
+                and (
+                    latest_version != self.local_version
+                    or (
+                        self.local_commit is not None
+                        and latest_commit != self.local_commit
+                    )
+                )
             )
             with self._lock:
                 self._snapshot["connection_available"] = True
+                self._snapshot["check_error"] = None
                 self._snapshot["available_version"] = (
                     latest_version if update_available else None
                 )
                 self._snapshot["available_commit"] = (
                     latest_commit if update_available else None
                 )
-        except Exception:
+        except urllib.error.HTTPError as error:
+            with self._lock:
+                self._snapshot["connection_available"] = True
+                self._snapshot["check_error"] = (
+                    f"GitHub returned HTTP {error.code}"
+                )
+                self._snapshot["available_version"] = None
+                self._snapshot["available_commit"] = None
+        except (urllib.error.URLError, TimeoutError, OSError) as error:
             with self._lock:
                 self._snapshot["connection_available"] = False
+                self._snapshot["check_error"] = str(error)
+        except Exception as error:
+            with self._lock:
+                self._snapshot["connection_available"] = True
+                self._snapshot["check_error"] = str(error)
+                self._snapshot["available_version"] = None
+                self._snapshot["available_commit"] = None
 
 
 def launch_installer(app_root, version, commit):
@@ -328,7 +397,12 @@ def _apply_archive(app_root, archive_path, expected_version, expected_commit, st
             with archive.open(member) as source, open(destination, "wb") as output:
                 shutil.copyfileobj(source, output)
 
-    archived_version = _read_version_file(extracted_root / "version.json")
+    archived_version_path = extracted_root / "version.json"
+    archived_version = (
+        _read_version_file(archived_version_path)
+        if archived_version_path.exists()
+        else expected_version
+    )
     if archived_version != expected_version:
         raise ValueError("The GitHub version changed before installation")
 
