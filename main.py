@@ -19,10 +19,40 @@ def load_background():
     surface.fill(DARK_GRAY)
     return surface
 
+
+def to_logical_pos(pos, window_size):
+    """Map a window-space mouse position to the fixed game canvas."""
+    window_width, window_height = window_size
+    if window_width <= 0 or window_height <= 0:
+        return 0, 0
+    return (
+        round(pos[0] * SCREEN_WIDTH / window_width),
+        round(pos[1] * SCREEN_HEIGHT / window_height)
+    )
+
+
+def to_logical_event(event, window_size):
+    """Translate mouse event coordinates to the fixed game canvas."""
+    if event.type not in (pygame.MOUSEBUTTONDOWN, pygame.MOUSEBUTTONUP, pygame.MOUSEMOTION):
+        return event
+
+    event_data = event.dict.copy()
+    if "pos" in event_data:
+        event_data["pos"] = to_logical_pos(event_data["pos"], window_size)
+    if "rel" in event_data:
+        window_width, window_height = window_size
+        if window_width > 0 and window_height > 0:
+            event_data["rel"] = (
+                round(event_data["rel"][0] * SCREEN_WIDTH / window_width),
+                round(event_data["rel"][1] * SCREEN_HEIGHT / window_height)
+            )
+    return pygame.event.Event(event.type, event_data)
+
 def main():
     pygame.init()
     pygame.mixer.init()
-    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+    display = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.RESIZABLE)
+    screen = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT)).convert()
     pygame.display.set_caption(TITLE)
     clock = pygame.time.Clock()
 
@@ -112,9 +142,25 @@ def main():
     running = True
     while running:
         dt = clock.tick(FPS)
-        mouse_pos = pygame.mouse.get_pos()
+        mouse_pos = to_logical_pos(pygame.mouse.get_pos(), display.get_size())
 
-        for event in pygame.event.get():
+        for raw_event in pygame.event.get():
+            if raw_event.type == getattr(pygame, "VIDEORESIZE", -1):
+                new_size = (raw_event.w, raw_event.h)
+            elif raw_event.type in (
+                getattr(pygame, "WINDOWRESIZED", -1),
+                getattr(pygame, "WINDOWSIZECHANGED", -1)
+            ):
+                new_size = (raw_event.x, raw_event.y)
+            else:
+                new_size = None
+
+            if new_size and min(new_size) > 0 and new_size != display.get_size():
+                display = pygame.display.set_mode(new_size, pygame.RESIZABLE)
+                mouse_pos = to_logical_pos(pygame.mouse.get_pos(), display.get_size())
+                continue
+
+            event = to_logical_event(raw_event, display.get_size())
             context_menu_was_open = context_menu is not None
             if event.type == pygame.QUIT:
                 running = False
@@ -497,6 +543,7 @@ def main():
             pause_timer_btn.draw(screen)
             stop_timer_btn.draw(screen)
 
+        display.blit(pygame.transform.smoothscale(screen, display.get_size()), (0, 0))
         pygame.display.flip()
 
     music_player.stop()
