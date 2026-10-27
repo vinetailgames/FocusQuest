@@ -73,6 +73,6 @@ Press **Delete** to erase all quests, clear the saved task pool, and reset your 
 
 ### Announcements and updates
 
-Click the bell in the upper left to check announcements. Focus Quest checks the GitHub repository every five minutes and shows an install option when a newer commit is available. The published version label is stored in `version.json`; update its `version` value when publishing a new release.
+Click the bell in the upper left to check announcements. Focus Quest checks the GitHub repository every two minutes and shows an install option when a newer commit is available. The published version label is stored in `version.json`; update its `version` value when publishing a new release.
 
 Installing an update asks for confirmation, downloads the latest files from the `main` branch, and restarts the game. Saved data and Git metadata are kept during the update.

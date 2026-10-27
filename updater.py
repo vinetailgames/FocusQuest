@@ -17,7 +17,7 @@ from pathlib import Path, PurePosixPath
 
 GITHUB_REPOSITORY = "vinetailgames/FocusQuest"
 GITHUB_BRANCH = "main"
-CHECK_INTERVAL_SECONDS = 300
+CHECK_INTERVAL_SECONDS = 120
 REQUEST_TIMEOUT_SECONDS = 12
 UPDATE_STATE_RELATIVE_PATH = Path("data") / "update_state.json"
 PRESERVED_DIRECTORY_NAMES = {".git", ".venv", "venv", "env", "data", "__pycache__"}
@@ -103,7 +103,9 @@ def _request_json(url):
         url,
         headers={
             "Accept": "application/vnd.github+json",
-            "User-Agent": "FocusQuest-Updater"
+            "User-Agent": "FocusQuest-Updater",
+            "Cache-Control": "no-cache, no-store",
+            "Pragma": "no-cache"
         }
     )
     with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
@@ -113,7 +115,7 @@ def _request_json(url):
 def _latest_github_version(local_version):
     commit_url = (
         f"https://api.github.com/repos/{GITHUB_REPOSITORY}"
-        f"/commits/{GITHUB_BRANCH}"
+        f"/commits/{GITHUB_BRANCH}?nocache={time.time_ns()}"
     )
     commit_payload = _request_json(commit_url)
     commit = commit_payload.get("sha")
