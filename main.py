@@ -8,6 +8,7 @@ from music_player import MusicPlayer
 from quest import QuestManager
 from timer import PomodoroTimer
 from updater import UpdateService, launch_installer
+from coin_ui import CoinUI
 
 def load_background():
     try:
@@ -92,7 +93,7 @@ def main():
     update_service = UpdateService(BASE_DIR)
     update_service.start()
 
-    coin_font = pygame.font.SysFont(None, FONT_LARGE)
+    coin_ui = CoinUI()
     normal_font = pygame.font.SysFont(None, 26)
     small_font = pygame.font.SysFont(None, 22)
 
@@ -492,11 +493,7 @@ def main():
         # ===== DRAW =====
         screen.blit(background, (0, 0))
 
-        # Coins
-        coin_text = coin_font.render(f"Coins: {quest_manager.coin_amount}", True, GOLD)
-        coin_rect = coin_text.get_rect(topleft=(72, 24))
-        pygame.draw.rect(screen, (0, 0, 0, 180), coin_rect.inflate(20, 10), border_radius=6)
-        screen.blit(coin_text, coin_rect)
+        coin_ui.draw(screen, quest_manager.coin_amount)
 
         update_snapshot = update_service.snapshot()
         draw_bell_icon(
