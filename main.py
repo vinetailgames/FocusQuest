@@ -7,6 +7,7 @@ from ui import Button, InputBox, MultilineInputBox
 from music_player import MusicPlayer
 from quest import QuestManager
 from timer import PomodoroTimer
+from updater import UpdateService, launch_installer
 
 def load_background():
     try:
@@ -48,6 +49,34 @@ def to_logical_event(event, window_size):
             )
     return pygame.event.Event(event.type, event_data)
 
+
+def draw_bell_icon(surface, rect, has_announcement):
+    pygame.draw.rect(surface, (30, 30, 40), rect, border_radius=8)
+    pygame.draw.rect(surface, LIGHT_GRAY, rect, 1, border_radius=8)
+
+    center_x = rect.centerx
+    center_y = rect.centery
+    bell_color = WHITE
+    pygame.draw.ellipse(surface, bell_color, (center_x - 7, center_y - 12, 14, 18))
+    pygame.draw.polygon(surface, bell_color, [
+        (center_x - 7, center_y - 5),
+        (center_x + 7, center_y - 5),
+        (center_x + 10, center_y + 8),
+        (center_x - 10, center_y + 8)
+    ])
+    pygame.draw.line(
+        surface, (30, 30, 40),
+        (center_x - 8, center_y + 5), (center_x + 8, center_y + 5), 2
+    )
+    pygame.draw.ellipse(surface, bell_color, (center_x - 4, center_y + 7, 8, 4))
+    pygame.draw.circle(surface, bell_color, (center_x, center_y - 13), 2)
+
+    if has_announcement:
+        dot_center = (rect.right - 2, rect.bottom - 2)
+        pygame.draw.circle(surface, RED, dot_center, 6)
+        pygame.draw.circle(surface, WHITE, dot_center, 6, 1)
+
+
 def main():
     pygame.init()
     pygame.mixer.init()
@@ -60,6 +89,8 @@ def main():
     music_player = MusicPlayer()
     quest_manager = QuestManager()
     timer = PomodoroTimer()
+    update_service = UpdateService(BASE_DIR)
+    update_service.start()
 
     coin_font = pygame.font.SysFont(None, FONT_LARGE)
     normal_font = pygame.font.SysFont(None, 26)
@@ -101,6 +132,30 @@ def main():
     quest_window_rect = pygame.Rect(SCREEN_WIDTH // 2 - 280, 80, 560, 520)
     pause_quests_button = Button(0, 0, 160, 40, "Pause Quests")
     quest_list_visible_rows = 12
+
+    bell_rect = pygame.Rect(20, 18, 40, 40)
+    announcements_open = False
+    confirm_update_install = False
+    update_install_error = None
+    announcements_rect = pygame.Rect(
+        SCREEN_WIDTH // 2 - 300, SCREEN_HEIGHT // 2 - 150, 600, 300
+    )
+    announcements_close_button = Button(
+        announcements_rect.right - 52, announcements_rect.y + 14,
+        36, 34, "X", font_size=22
+    )
+    update_install_button = Button(
+        announcements_rect.right - 150, announcements_rect.y + 100,
+        120, 40, "Install", font_size=24, bg_color=GREEN
+    )
+    confirm_yes_button = Button(
+        announcements_rect.x + 165, announcements_rect.y + 190,
+        110, 40, "Yes", font_size=24, bg_color=GREEN
+    )
+    confirm_no_button = Button(
+        announcements_rect.x + 325, announcements_rect.y + 190,
+        110, 40, "No", font_size=24, bg_color=RED
+    )
 
     def quest_list_row_rect(visible_index):
         row_y = quest_window_rect.y + 55 + visible_index * 32
@@ -164,6 +219,43 @@ def main():
             context_menu_was_open = context_menu is not None
             if event.type == pygame.QUIT:
                 running = False
+                continue
+
+            if announcements_open:
+                if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                    announcements_open = False
+                    confirm_update_install = False
+                    continue
+
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    if confirm_update_install:
+                        if confirm_yes_button.is_clicked(event):
+                            snapshot = update_service.snapshot()
+                            version = snapshot["available_version"]
+                            commit = snapshot["available_commit"]
+                            try:
+                                launch_installer(BASE_DIR, version, commit)
+                                update_service.stop()
+                                running = False
+                            except Exception as error:
+                                update_install_error = str(error)
+                        elif confirm_no_button.is_clicked(event):
+                            confirm_update_install = False
+                    elif announcements_close_button.is_clicked(event):
+                        announcements_open = False
+                    elif update_install_button.is_clicked(event):
+                        confirm_update_install = True
+                        update_install_error = None
+                continue
+
+            if (
+                event.type == pygame.MOUSEBUTTONDOWN
+                and event.button == 1
+                and bell_rect.collidepoint(event.pos)
+            ):
+                announcements_open = True
+                update_service.request_check()
+                continue
 
             if event.type == pygame.KEYDOWN and event.key == pygame.K_DELETE:
                 quest_manager.reset_all()
@@ -391,14 +483,26 @@ def main():
             pause_timer_btn.update(mouse_pos)
             stop_timer_btn.update(mouse_pos)
 
+        if announcements_open:
+            announcements_close_button.update(mouse_pos)
+            update_install_button.update(mouse_pos)
+            confirm_yes_button.update(mouse_pos)
+            confirm_no_button.update(mouse_pos)
+
         # ===== DRAW =====
         screen.blit(background, (0, 0))
 
         # Coins
         coin_text = coin_font.render(f"Coins: {quest_manager.coin_amount}", True, GOLD)
-        coin_rect = coin_text.get_rect(topleft=(20, 20))
+        coin_rect = coin_text.get_rect(topleft=(72, 24))
         pygame.draw.rect(screen, (0, 0, 0, 180), coin_rect.inflate(20, 10), border_radius=6)
         screen.blit(coin_text, coin_rect)
+
+        update_snapshot = update_service.snapshot()
+        draw_bell_icon(
+            screen, bell_rect,
+            update_snapshot["available_version"] is not None
+        )
 
         quest_button.draw(screen)
         timer_button.draw(screen)
@@ -543,9 +647,71 @@ def main():
             pause_timer_btn.draw(screen)
             stop_timer_btn.draw(screen)
 
+        if announcements_open:
+            shade = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+            shade.fill((0, 0, 0, 165))
+            screen.blit(shade, (0, 0))
+
+            pygame.draw.rect(
+                screen, (25, 25, 35), announcements_rect, border_radius=14
+            )
+            pygame.draw.rect(
+                screen, LIGHT_GRAY, announcements_rect, 2, border_radius=14
+            )
+            title = normal_font.render("Announcements", True, GOLD)
+            screen.blit(title, (announcements_rect.x + 28, announcements_rect.y + 22))
+
+            if confirm_update_install:
+                prompt = small_font.render(
+                    "Do you want to install latest version now?", True, WHITE
+                )
+                screen.blit(prompt, prompt.get_rect(center=(
+                    announcements_rect.centerx, announcements_rect.y + 125
+                )))
+                confirm_yes_button.draw(screen)
+                confirm_no_button.draw(screen)
+                if update_install_error:
+                    error_text = small_font.render(
+                        "Could not start the updater.", True, RED
+                    )
+                    screen.blit(error_text, error_text.get_rect(center=(
+                        announcements_rect.centerx, announcements_rect.bottom - 28
+                    )))
+            elif update_snapshot["connection_available"] is None:
+                message = "Checking for announcements..."
+                message_surface = normal_font.render(message, True, WHITE)
+                screen.blit(message_surface, (
+                    announcements_rect.x + 30, announcements_rect.y + 112
+                ))
+            elif not update_snapshot["connection_available"]:
+                message = "Connection required for announcements"
+                message_surface = normal_font.render(message, True, WHITE)
+                screen.blit(message_surface, (
+                    announcements_rect.x + 30, announcements_rect.y + 112
+                ))
+            elif update_snapshot["available_version"]:
+                message = (
+                    f"Update {update_snapshot['available_version']} "
+                    "is ready to install"
+                )
+                message_surface = small_font.render(message, True, WHITE)
+                screen.blit(message_surface, (
+                    announcements_rect.x + 30, announcements_rect.y + 112
+                ))
+                update_install_button.draw(screen)
+            else:
+                message = "No announcements available"
+                message_surface = normal_font.render(message, True, WHITE)
+                screen.blit(message_surface, (
+                    announcements_rect.x + 30, announcements_rect.y + 112
+                ))
+
+            announcements_close_button.draw(screen)
+
         display.blit(pygame.transform.smoothscale(screen, display.get_size()), (0, 0))
         pygame.display.flip()
 
+    update_service.stop()
     music_player.stop()
     timer.stop()
     pygame.quit()

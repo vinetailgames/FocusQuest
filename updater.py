@@ -1,0 +1,437 @@
+"""GitHub version checks and the restartable application updater."""
+
+import json
+import os
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import urllib.request
+import zipfile
+from pathlib import Path, PurePosixPath
+
+
+GITHUB_REPOSITORY = "vinetailgames/FocusQuest"
+GITHUB_BRANCH = "main"
+CHECK_INTERVAL_SECONDS = 300
+REQUEST_TIMEOUT_SECONDS = 12
+UPDATE_STATE_RELATIVE_PATH = Path("data") / "update_state.json"
+PRESERVED_DIRECTORY_NAMES = {".git", ".venv", "venv", "env", "data", "__pycache__"}
+
+
+def _read_version_file(path):
+    with open(path, "r", encoding="utf-8") as version_file:
+        payload = json.load(version_file)
+    version = payload.get("version")
+    if not isinstance(version, str) or not version.strip():
+        raise ValueError("version.json must contain a non-empty 'version' string")
+    return version.strip()
+
+
+def _read_update_state(root):
+    state_path = root / UPDATE_STATE_RELATIVE_PATH
+    try:
+        with open(state_path, "r", encoding="utf-8") as state_file:
+            state = json.load(state_file)
+        commit = state.get("commit")
+        return commit if isinstance(commit, str) and commit else None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def _write_update_state(root, version, commit):
+    state_path = root / UPDATE_STATE_RELATIVE_PATH
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = state_path.with_suffix(".tmp")
+    with open(temp_path, "w", encoding="utf-8") as state_file:
+        json.dump({"version": version, "commit": commit}, state_file, indent=2)
+    os.replace(temp_path, state_path)
+
+
+def _git_head(root):
+    if not (root / ".git").exists():
+        return None
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=3
+        )
+        return result.stdout.strip() or None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def _request_json(url):
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "FocusQuest-Updater"
+        }
+    )
+    with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _latest_github_version():
+    commit_url = (
+        f"https://api.github.com/repos/{GITHUB_REPOSITORY}"
+        f"/commits/{GITHUB_BRANCH}"
+    )
+    commit_payload = _request_json(commit_url)
+    commit = commit_payload.get("sha")
+    if not isinstance(commit, str) or not commit:
+        raise ValueError("GitHub did not return the latest commit SHA")
+
+    version_url = (
+        f"https://raw.githubusercontent.com/{GITHUB_REPOSITORY}/"
+        f"{commit}/version.json"
+    )
+    version_payload = _request_json(version_url)
+    version = version_payload.get("version")
+    if not isinstance(version, str) or not version.strip():
+        raise ValueError("GitHub version.json has no version")
+    return version.strip(), commit
+
+
+class UpdateService:
+    """Poll GitHub off-thread and expose a small, thread-safe status snapshot."""
+
+    def __init__(self, app_root, check_interval=CHECK_INTERVAL_SECONDS):
+        self.app_root = Path(app_root).resolve()
+        self.local_version = _read_version_file(self.app_root / "version.json")
+        self.local_commit = _read_update_state(self.app_root)
+        if self.local_commit is None:
+            self.local_commit = _git_head(self.app_root)
+
+        self.check_interval = check_interval
+        self._lock = threading.Lock()
+        self._wake = threading.Event()
+        self._stop = threading.Event()
+        self._snapshot = {
+            "connection_available": None,
+            "local_version": self.local_version,
+            "available_version": None,
+            "available_commit": None
+        }
+        self._thread = threading.Thread(
+            target=self._run,
+            name="FocusQuestUpdateChecker",
+            daemon=True
+        )
+
+    def start(self):
+        self._thread.start()
+
+    def request_check(self):
+        self._wake.set()
+
+    def stop(self):
+        self._stop.set()
+        self._wake.set()
+
+    def snapshot(self):
+        with self._lock:
+            return self._snapshot.copy()
+
+    def _run(self):
+        while not self._stop.is_set():
+            self._check_once()
+            self._wake.wait(self.check_interval)
+            self._wake.clear()
+
+    def _check_once(self):
+        try:
+            latest_version, latest_commit = _latest_github_version()
+            if self.local_commit is None and latest_version == self.local_version:
+                # A source ZIP has no Git metadata. Record its first online baseline.
+                self.local_commit = latest_commit
+                try:
+                    _write_update_state(self.app_root, self.local_version, latest_commit)
+                except OSError:
+                    pass
+
+            update_available = (
+                latest_version != self.local_version
+                or (self.local_commit is not None and latest_commit != self.local_commit)
+            )
+            with self._lock:
+                self._snapshot["connection_available"] = True
+                self._snapshot["available_version"] = (
+                    latest_version if update_available else None
+                )
+                self._snapshot["available_commit"] = (
+                    latest_commit if update_available else None
+                )
+        except Exception:
+            with self._lock:
+                self._snapshot["connection_available"] = False
+
+
+def launch_installer(app_root, version, commit):
+    """Start a detached helper that waits for this app to exit before updating."""
+    helper_fd, helper_path = tempfile.mkstemp(
+        prefix="focusquest_updater_", suffix=".py"
+    )
+    os.close(helper_fd)
+    try:
+        shutil.copy2(Path(__file__).resolve(), helper_path)
+        command = [
+            sys.executable,
+            helper_path,
+            "--install",
+            str(Path(app_root).resolve()),
+            version,
+            commit,
+            str(os.getpid())
+        ]
+        popen_options = {
+            "cwd": str(Path(app_root).resolve()),
+            "stdin": subprocess.DEVNULL,
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+            "close_fds": True
+        }
+        if os.name == "nt":
+            popen_options["creationflags"] = (
+                getattr(subprocess, "DETACHED_PROCESS", 0)
+                | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            )
+        else:
+            popen_options["start_new_session"] = True
+        subprocess.Popen(command, **popen_options)
+        return True
+    except Exception:
+        try:
+            os.remove(helper_path)
+        except OSError:
+            pass
+        raise
+
+
+def _wait_for_parent_exit(parent_pid):
+    deadline = time.monotonic() + 60
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = (
+            wintypes.DWORD, wintypes.BOOL, wintypes.DWORD
+        )
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+        kernel32.WaitForSingleObject.restype = wintypes.DWORD
+        kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        synchronize = 0x00100000
+        process_handle = kernel32.OpenProcess(synchronize, False, parent_pid)
+        if not process_handle:
+            error_code = ctypes.get_last_error()
+            if error_code == 87:  # The process has already exited.
+                return
+            raise OSError(error_code, ctypes.FormatError(error_code))
+        try:
+            while time.monotonic() < deadline:
+                wait_result = kernel32.WaitForSingleObject(process_handle, 200)
+                if wait_result == 0:
+                    return
+        finally:
+            kernel32.CloseHandle(process_handle)
+        raise TimeoutError("Focus Quest did not close in time for the update")
+
+    while time.monotonic() < deadline:
+        try:
+            os.kill(parent_pid, 0)
+        except ProcessLookupError:
+            return
+        except PermissionError:
+            pass
+        except OSError:
+            return
+        time.sleep(0.2)
+    raise TimeoutError("Focus Quest did not close in time for the update")
+
+
+def _safe_archive_path(member_name, archive_root):
+    path = PurePosixPath(member_name.replace("\\", "/"))
+    if path.is_absolute() or ".." in path.parts or not path.parts:
+        return None
+    if path.parts[0] != archive_root or len(path.parts) == 1:
+        return None
+    relative = Path(*path.parts[1:])
+    if any(part in PRESERVED_DIRECTORY_NAMES for part in relative.parts):
+        return None
+    if any(part.startswith(".focusquest_update_") for part in relative.parts):
+        return None
+    if relative.is_absolute() or relative.drive:
+        return None
+    return relative
+
+
+def _download_archive(commit, destination):
+    if (
+        not isinstance(commit, str)
+        or len(commit) not in (40, 64)
+        or any(character not in "0123456789abcdefABCDEF" for character in commit)
+    ):
+        raise ValueError("GitHub returned an invalid commit SHA")
+    archive_url = (
+        f"https://api.github.com/repos/{GITHUB_REPOSITORY}/zipball/{commit}"
+    )
+    request = urllib.request.Request(
+        archive_url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "FocusQuest-Updater"
+        }
+    )
+    with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+        with open(destination, "wb") as archive_file:
+            shutil.copyfileobj(response, archive_file)
+
+
+def _apply_archive(app_root, archive_path, expected_version, expected_commit, staging_root):
+    extracted_root = staging_root / "extracted"
+    extracted_root.mkdir()
+    changes = []
+
+    with zipfile.ZipFile(archive_path) as archive:
+        root_names = {
+            PurePosixPath(member.filename.replace("\\", "/")).parts[0]
+            for member in archive.infolist()
+            if PurePosixPath(member.filename.replace("\\", "/")).parts
+        }
+        if len(root_names) != 1:
+            raise ValueError("The GitHub archive has an unexpected layout")
+        archive_root = next(iter(root_names))
+
+        for member in archive.infolist():
+            relative = _safe_archive_path(member.filename, archive_root)
+            if relative is None:
+                continue
+            mode = member.external_attr >> 16
+            if stat.S_ISLNK(mode):
+                raise ValueError("The GitHub archive contains a symbolic link")
+            destination = extracted_root / relative
+            if member.is_dir():
+                destination.mkdir(parents=True, exist_ok=True)
+                continue
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(member) as source, open(destination, "wb") as output:
+                shutil.copyfileobj(source, output)
+
+    archived_version = _read_version_file(extracted_root / "version.json")
+    if archived_version != expected_version:
+        raise ValueError("The GitHub version changed before installation")
+
+    try:
+        for staged_file in extracted_root.rglob("*"):
+            if not staged_file.is_file():
+                continue
+            relative = staged_file.relative_to(extracted_root)
+            target = app_root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+
+            backup = staging_root / "backup" / relative
+            existed = target.exists()
+            if existed:
+                backup.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(target, backup)
+
+            replacement = target.with_name(
+                f".focusquest_update_{staging_root.name}_{target.name}"
+            )
+            try:
+                shutil.copy2(staged_file, replacement)
+                os.replace(replacement, target)
+            except Exception:
+                try:
+                    replacement.unlink()
+                except OSError:
+                    pass
+                raise
+            changes.append((target, backup if existed else None))
+    except Exception:
+        for target, backup in reversed(changes):
+            if backup is not None and backup.exists():
+                os.replace(backup, target)
+            else:
+                try:
+                    target.unlink()
+                except OSError:
+                    pass
+        raise
+
+    _write_update_state(app_root, expected_version, expected_commit)
+
+
+def _launch_application(app_root):
+    command = [sys.executable, str(app_root / "main.py")]
+    popen_options = {
+        "cwd": str(app_root),
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "close_fds": True
+    }
+    if os.name == "nt":
+        popen_options["creationflags"] = (
+            getattr(subprocess, "DETACHED_PROCESS", 0)
+            | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        )
+    else:
+        popen_options["start_new_session"] = True
+    subprocess.Popen(command, **popen_options)
+
+
+def _show_install_error(message):
+    try:
+        import tkinter
+        from tkinter import messagebox
+
+        window = tkinter.Tk()
+        window.withdraw()
+        messagebox.showerror("Focus Quest update failed", message, parent=window)
+        window.destroy()
+    except Exception:
+        pass
+
+
+def _run_installer(app_root, version, commit, parent_pid):
+    app_root = Path(app_root).resolve()
+    staging_root = None
+    try:
+        _wait_for_parent_exit(parent_pid)
+        staging_root = Path(tempfile.mkdtemp(
+            prefix=".focusquest_update_", dir=app_root
+        ))
+        archive_path = staging_root / "github.zip"
+        _download_archive(commit, archive_path)
+        _apply_archive(
+            app_root, archive_path, version, commit, staging_root
+        )
+    except Exception as error:
+        _show_install_error(str(error))
+    finally:
+        if staging_root is not None:
+            shutil.rmtree(staging_root, ignore_errors=True)
+        try:
+            _launch_application(app_root)
+        except Exception as error:
+            _show_install_error(f"Could not relaunch Focus Quest: {error}")
+        try:
+            os.remove(__file__)
+        except OSError:
+            pass
+
+
+if __name__ == "__main__" and len(sys.argv) == 6 and sys.argv[1] == "--install":
+    _run_installer(sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5]))
