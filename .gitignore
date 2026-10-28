@@ -12,6 +12,7 @@ __pycache__/
 build/
 release-output/
 build_release.ps1
+release_workflow.txt
 
 # Save data (keep personal progress local)
 data/save.json
