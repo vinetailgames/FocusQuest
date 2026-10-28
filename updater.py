@@ -569,8 +569,18 @@ def _extract_dist_bundle(archive_path, extracted_root, expected_version):
             raise ValueError("GitHub does not contain a dist/FocusQuest build")
 
     version_path = extracted_root / "version.json"
-    if not version_path.is_file() or _read_version_file(version_path) != expected_version:
-        raise ValueError("The downloaded release does not match its version tag")
+    if not version_path.is_file():
+        raise ValueError(
+            "The downloaded dist/FocusQuest bundle is missing version.json. "
+            "Run build_release.ps1 and push the updated dist/FocusQuest folder."
+        )
+    bundle_version = _read_version_file(version_path)
+    if bundle_version != expected_version:
+        raise ValueError(
+            f"GitHub version.json says {expected_version}, but the downloaded "
+            f"dist/FocusQuest bundle is {bundle_version}. Run "
+            "build_release.ps1 and push the updated dist/FocusQuest folder."
+        )
     if not (extracted_root / "FocusQuest.exe").is_file():
         raise ValueError("The downloaded release is missing FocusQuest.exe")
     if not (extracted_root / "FocusQuestUpdater.exe").is_file():
@@ -580,6 +590,7 @@ def _extract_dist_bundle(archive_path, extracted_root, expected_version):
 
 
 def _apply_binary_release(app_root, extracted_root, staging_root):
+    # Keep data/ outside this replacement list so installed saves survive updates.
     paths_to_replace = (
         Path("_internal"),
         Path("FocusQuest.exe"),
