@@ -234,8 +234,11 @@ def main():
                             snapshot = update_service.snapshot()
                             version = snapshot["available_version"]
                             commit = snapshot["available_commit"]
+                            asset_url = snapshot.get("available_asset_url")
                             try:
-                                launch_installer(BASE_DIR, version, commit)
+                                launch_installer(
+                                    BASE_DIR, version, commit, asset_url
+                                )
                                 update_service.stop()
                                 running = False
                             except Exception as error:

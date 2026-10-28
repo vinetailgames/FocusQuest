@@ -8,6 +8,11 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# PyInstaller packaging output
+build/
+dist/
+release-output/
+
 # Save data (keep personal progress local)
 data/save.json
 data/*.json

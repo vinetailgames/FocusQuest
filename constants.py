@@ -1,5 +1,6 @@
 # constants.py
 import os
+import sys
 
 # Window
 SCREEN_WIDTH = 1280
@@ -8,8 +9,16 @@ FPS = 60
 TITLE = "Focus Quest"
 
 # Paths
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-ASSETS_DIR = os.path.join(BASE_DIR, "assets")
+if getattr(sys, "frozen", False):
+    # Writable installation folder and bundled read-only resources are separate
+    # in a PyInstaller one-folder build.
+    BASE_DIR = os.path.dirname(sys.executable)
+    RESOURCE_DIR = getattr(sys, "_MEIPASS", BASE_DIR)
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    RESOURCE_DIR = BASE_DIR
+
+ASSETS_DIR = os.path.join(RESOURCE_DIR, "assets")
 BACKGROUND_PATH = os.path.join(ASSETS_DIR, "backgrounds", "desk.jpg")
 MUSIC_DIR = os.path.join(ASSETS_DIR, "music")
 DATA_FILE = os.path.join(BASE_DIR, "data", "save.json")

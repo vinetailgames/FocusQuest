@@ -73,6 +73,16 @@ Press **Delete** to erase all quests, clear the saved task pool, and reset your 
 
 ### Announcements and updates
 
-Click the bell in the upper left to check announcements. Focus Quest checks the GitHub repository every two minutes and shows an install option when a newer commit is available. The published version label is stored in `version.json`; update its `version` value when publishing a new release.
+Click the bell in the upper left to check announcements. The packaged Windows game checks GitHub every two minutes and announces a release after its ZIP is published. Installing asks for confirmation, closes the game, downloads the new game files, replaces the installed bundle, and relaunches `FocusQuest.exe`. Saved data in the install folder is kept.
 
-Installing an update asks for confirmation, downloads the latest files from the `main` branch, and restarts the game. Saved data and Git metadata are kept during the update.
+To publish an update, change the `version` value in `version.json` (for example, `v.0.3`), commit the game changes and version together, then push to `main`. GitHub Actions builds the Windows app and publishes a GitHub Release with the ZIP the updater downloads. Each release version must be new. The packaged game announces it after the release is ready.
+
+Players using an EXE packaged before this binary updater was added must install the first release built with it manually. Later releases can be installed from the in-game announcement.
+
+To build the Windows release ZIP locally, run this from the project folder in PowerShell:
+
+```powershell
+.\build_release.ps1
+```
+
+The output appears in `release-output/<version>/`. The script builds `FocusQuest.exe` as a one-folder app and includes `FocusQuestUpdater.exe`; keep the executable beside the `_internal` folder and `version.json` when distributing the ZIP.
