@@ -10,8 +10,8 @@ __pycache__/
 
 # PyInstaller packaging output
 build/
-dist/
 release-output/
+build_release.ps1
 
 # Save data (keep personal progress local)
 data/save.json

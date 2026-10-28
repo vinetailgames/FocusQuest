@@ -2,6 +2,7 @@
 import pygame
 import sys
 import os
+import textwrap
 from constants import *
 from ui import Button, InputBox, MultilineInputBox
 from music_player import MusicPlayer
@@ -137,6 +138,8 @@ def main():
     bell_rect = pygame.Rect(20, 18, 40, 40)
     announcements_open = False
     confirm_update_install = False
+    pending_update = None
+    last_available_update = None
     update_install_error = None
     announcements_rect = pygame.Rect(
         SCREEN_WIDTH // 2 - 300, SCREEN_HEIGHT // 2 - 150, 600, 300
@@ -226,12 +229,17 @@ def main():
                 if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                     announcements_open = False
                     confirm_update_install = False
+                    pending_update = None
                     continue
 
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     if confirm_update_install:
                         if confirm_yes_button.is_clicked(event):
-                            snapshot = update_service.snapshot()
+                            snapshot = (
+                                pending_update
+                                or last_available_update
+                                or update_service.snapshot()
+                            )
                             version = snapshot["available_version"]
                             commit = snapshot["available_commit"]
                             asset_url = snapshot.get("available_asset_url")
@@ -245,9 +253,14 @@ def main():
                                 update_install_error = str(error)
                         elif confirm_no_button.is_clicked(event):
                             confirm_update_install = False
+                            pending_update = None
                     elif announcements_close_button.is_clicked(event):
                         announcements_open = False
                     elif update_install_button.is_clicked(event):
+                        pending_update = (
+                            last_available_update
+                            or update_service.snapshot()
+                        )
                         confirm_update_install = True
                         update_install_error = None
                 continue
@@ -499,6 +512,14 @@ def main():
         coin_ui.draw(screen, quest_manager.coin_amount)
 
         update_snapshot = update_service.snapshot()
+        if (
+            update_snapshot["available_version"]
+            and (
+                update_snapshot.get("available_asset_url")
+                or update_snapshot.get("available_commit")
+            )
+        ):
+            last_available_update = update_snapshot.copy()
         draw_bell_icon(
             screen, bell_rect,
             update_snapshot["available_version"] is not None
@@ -671,12 +692,19 @@ def main():
                 confirm_yes_button.draw(screen)
                 confirm_no_button.draw(screen)
                 if update_install_error:
-                    error_text = small_font.render(
-                        "Could not start the updater.", True, RED
+                    error_lines = textwrap.wrap(
+                        f"Updater error: {update_install_error}", width=56
                     )
-                    screen.blit(error_text, error_text.get_rect(center=(
-                        announcements_rect.centerx, announcements_rect.bottom - 28
-                    )))
+                    if len(error_lines) > 2:
+                        error_lines = error_lines[:2]
+                        error_lines[1] = error_lines[1][:53] + "..."
+                    line_y = announcements_rect.bottom - 48
+                    for error_line in error_lines:
+                        error_text = small_font.render(error_line, True, RED)
+                        screen.blit(error_text, error_text.get_rect(center=(
+                            announcements_rect.centerx, line_y
+                        )))
+                        line_y += 22
             elif update_snapshot["connection_available"] is None:
                 message = "Checking for announcements..."
                 message_surface = normal_font.render(message, True, WHITE)

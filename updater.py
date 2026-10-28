@@ -11,7 +11,6 @@ import tempfile
 import threading
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 import zipfile
 from pathlib import Path, PurePosixPath
@@ -23,7 +22,6 @@ CHECK_INTERVAL_SECONDS = 120
 REQUEST_TIMEOUT_SECONDS = 12
 UPDATE_STATE_RELATIVE_PATH = Path("data") / "update_state.json"
 PRESERVED_DIRECTORY_NAMES = {".git", ".venv", "venv", "env", "data", "__pycache__"}
-BINARY_RELEASE_ASSET_NAME = "FocusQuest-{version}-windows.zip"
 
 
 def _read_version_file(path):
@@ -142,34 +140,12 @@ def _latest_github_version(local_version):
     return version.strip(), commit
 
 
-def _latest_binary_release(local_version):
-    """Return the packaged release matching version.json, once it is published."""
-    version, _ = _latest_github_version(local_version)
+def _latest_binary_update(local_version):
+    """Return a newer version and its repository commit for frozen builds."""
+    version, commit = _latest_github_version(local_version)
     if _compare_versions(version, local_version) <= 0:
         return version, None
-
-    encoded_version = urllib.parse.quote(version, safe="")
-    release_url = (
-        f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases/tags/"
-        f"{encoded_version}?nocache={time.time_ns()}"
-    )
-    try:
-        release = _request_json(release_url)
-    except urllib.error.HTTPError as error:
-        if error.code == 404:
-            # Wait until GitHub Actions has published the matching binary.
-            return version, None
-        raise
-
-    asset_name = BINARY_RELEASE_ASSET_NAME.format(version=version)
-    asset = next(
-        (item for item in release.get("assets", []) if item.get("name") == asset_name),
-        None
-    )
-    asset_url = asset.get("browser_download_url") if asset else None
-    if not isinstance(asset_url, str) or not asset_url:
-        return version, None
-    return version, asset_url
+    return version, commit
 
 
 class UpdateService:
@@ -224,17 +200,17 @@ class UpdateService:
     def _check_once(self):
         try:
             if self.is_frozen:
-                latest_version, asset_url = _latest_binary_release(
+                latest_version, latest_commit = _latest_binary_update(
                     self.local_version
                 )
                 with self._lock:
                     self._snapshot["connection_available"] = True
                     self._snapshot["check_error"] = None
                     self._snapshot["available_version"] = (
-                        latest_version if asset_url else None
+                        latest_version if latest_commit else None
                     )
-                    self._snapshot["available_commit"] = None
-                    self._snapshot["available_asset_url"] = asset_url
+                    self._snapshot["available_commit"] = latest_commit
+                    self._snapshot["available_asset_url"] = None
                 return
 
             latest_version, latest_commit = _latest_github_version(self.local_version)
@@ -301,7 +277,7 @@ class UpdateService:
 def launch_installer(app_root, version, commit=None, asset_url=None):
     """Start a detached helper that waits for this app to exit before updating."""
     if getattr(sys, "frozen", False):
-        return _launch_binary_installer(app_root, version, asset_url)
+        return _launch_binary_installer(app_root, version, commit)
 
     helper_fd, helper_path = tempfile.mkstemp(
         prefix="focusquest_updater_", suffix=".py"
@@ -342,9 +318,9 @@ def launch_installer(app_root, version, commit=None, asset_url=None):
         raise
 
 
-def _launch_binary_installer(app_root, version, asset_url):
-    if not asset_url:
-        raise ValueError("The packaged update has no download URL")
+def _launch_binary_installer(app_root, version, commit):
+    if not commit:
+        raise ValueError("GitHub did not provide a commit for this update")
 
     app_root = Path(app_root).resolve()
     helper_source = app_root / "FocusQuestUpdater.exe"
@@ -352,33 +328,101 @@ def _launch_binary_installer(app_root, version, asset_url):
         raise FileNotFoundError("FocusQuestUpdater.exe is missing from the app folder")
 
     app_key = hashlib.sha256(str(app_root).casefold().encode("utf-8")).hexdigest()[:12]
-    helper_path = Path(tempfile.gettempdir()) / f"FocusQuestUpdater-{app_key}.exe"
-    temporary_copy = helper_path.with_suffix(".tmp")
-    shutil.copy2(helper_source, temporary_copy)
-    os.replace(temporary_copy, helper_path)
+    helper_directory = app_root / ".focusquest-updater"
+    helper_directory.mkdir(parents=True, exist_ok=True)
+    helper_path = helper_directory / f"FocusQuestUpdater-{app_key}.exe"
+    temporary_copy = helper_directory / f".FocusQuestUpdater-{os.getpid()}.tmp"
+    try:
+        shutil.copy2(helper_source, temporary_copy)
+        try:
+            os.replace(temporary_copy, helper_path)
+        except OSError:
+            # A previous helper can briefly remain locked while it relaunches
+            # the game. In that case, use the already-staged helper copy.
+            if not helper_path.is_file():
+                raise
+    except Exception:
+        try:
+            temporary_copy.unlink()
+        except OSError:
+            pass
+        raise
 
     command = [
         str(helper_path),
         "--install-binary",
         str(app_root),
         version,
-        asset_url,
+        commit,
         str(os.getpid())
     ]
+    if os.name == "nt":
+        import ctypes
+
+        shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+        shell_execute = shell32.ShellExecuteW
+        shell_execute.argtypes = (
+            ctypes.c_void_p,
+            ctypes.c_wchar_p,
+            ctypes.c_wchar_p,
+            ctypes.c_wchar_p,
+            ctypes.c_wchar_p,
+            ctypes.c_int
+        )
+        shell_execute.restype = ctypes.c_void_p
+        result = shell_execute(
+            None,
+            "open",
+            str(helper_path),
+            subprocess.list2cmdline(command[1:]),
+            str(app_root),
+            0
+        )
+        if result is None or int(result) <= 32:
+            shell_errors = {
+                2: "The updater executable could not be found.",
+                3: "The updater path could not be found.",
+                5: "Windows denied permission to start the updater.",
+                8: "Windows ran out of memory while starting the updater.",
+                26: "Windows could not start the updater because of a sharing violation.",
+                27: "The updater file association is incomplete.",
+                28: "Windows timed out while starting the updater.",
+                29: "Windows could not complete the updater launch.",
+                30: "The updater launch was blocked by another process.",
+                31: "Windows could not find an application to open the updater.",
+                32: "A required updater library could not be found."
+            }
+            error_code = int(result or 0)
+            shell_error = OSError(
+                f"{shell_errors.get(error_code, 'Windows could not start the updater.')} "
+                f"(ShellExecuteW code {error_code})"
+            )
+            try:
+                subprocess.Popen(
+                    command,
+                    cwd=str(app_root),
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    close_fds=True,
+                    creationflags=getattr(subprocess, "DETACHED_PROCESS", 0)
+                )
+            except OSError as process_error:
+                raise OSError(
+                    f"{shell_error} Direct process launch also failed: "
+                    f"{process_error}"
+                ) from process_error
+            return True
+        return True
+
     popen_options = {
         "cwd": str(app_root),
         "stdin": subprocess.DEVNULL,
         "stdout": subprocess.DEVNULL,
         "stderr": subprocess.DEVNULL,
-        "close_fds": True
+        "close_fds": True,
+        "start_new_session": True
     }
-    if os.name == "nt":
-        popen_options["creationflags"] = (
-            getattr(subprocess, "DETACHED_PROCESS", 0)
-            | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-        )
-    else:
-        popen_options["start_new_session"] = True
     subprocess.Popen(command, **popen_options)
     return True
 
@@ -465,36 +509,21 @@ def _download_archive(commit, destination):
             shutil.copyfileobj(response, archive_file)
 
 
-def _download_release_asset(asset_url, version, destination):
-    expected_name = BINARY_RELEASE_ASSET_NAME.format(version=version)
-    parsed_url = urllib.parse.urlparse(asset_url)
-    expected_path = (
-        f"/{GITHUB_REPOSITORY}/releases/download/{version}/{expected_name}"
-    )
-    if (
-        parsed_url.scheme != "https"
-        or parsed_url.netloc.lower() != "github.com"
-        or urllib.parse.unquote(parsed_url.path) != expected_path
-    ):
-        raise ValueError("GitHub returned an unexpected update download URL")
-
-    request = urllib.request.Request(
-        asset_url,
-        headers={
-            "Accept": "application/octet-stream",
-            "User-Agent": "FocusQuest-Updater"
-        }
-    )
-    with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-        with open(destination, "wb") as archive_file:
-            shutil.copyfileobj(response, archive_file)
-
-
-def _extract_binary_release(archive_path, extracted_root, expected_version):
+def _extract_dist_bundle(archive_path, extracted_root, expected_version):
+    """Extract only dist/FocusQuest from a GitHub commit ZIP archive."""
     extracted_root.mkdir(parents=True)
     with zipfile.ZipFile(archive_path) as archive:
-        root_names = set()
-        for member in archive.infolist():
+        members = archive.infolist()
+        root_names = {
+            PurePosixPath(member.filename.replace("\\", "/")).parts[0]
+            for member in members
+            if PurePosixPath(member.filename.replace("\\", "/")).parts
+        }
+        if len(root_names) != 1:
+            raise ValueError("The GitHub archive has an unexpected layout")
+        archive_root = next(iter(root_names))
+
+        for member in members:
             member_path = PurePosixPath(member.filename.replace("\\", "/"))
             if not member_path.parts:
                 continue
@@ -504,21 +533,22 @@ def _extract_binary_release(archive_path, extracted_root, expected_version):
                 or any(":" in part for part in member_path.parts)
             ):
                 raise ValueError("The update archive contains an unsafe path")
-            root_names.add(member_path.parts[0])
+            if member_path.parts[0] != archive_root:
+                raise ValueError("The GitHub archive has an unexpected layout")
+            if member_path.parts[1:3] != ("dist", "FocusQuest"):
+                continue
             mode = member.external_attr >> 16
             if stat.S_ISLNK(mode):
                 raise ValueError("The update archive contains a symbolic link")
 
-        if root_names != {"FocusQuest"}:
-            raise ValueError("The update archive has an unexpected layout")
-
-        for member in archive.infolist():
+        copied_bundle_entries = 0
+        for member in members:
             member_path = PurePosixPath(member.filename.replace("\\", "/"))
-            if len(member_path.parts) <= 1:
+            if member_path.parts[1:3] != ("dist", "FocusQuest"):
                 continue
-            relative_parts = member_path.parts[1:]
-            # Save data lives at the install root and is never part of an app
-            # bundle. Keep a root-level data entry out of the staging copy too.
+            relative_parts = member_path.parts[3:]
+            if not relative_parts:
+                continue
             if relative_parts[0] == "data":
                 continue
             if any(part.startswith(".focusquest_update_") for part in relative_parts):
@@ -533,6 +563,10 @@ def _extract_binary_release(archive_path, extracted_root, expected_version):
             destination.parent.mkdir(parents=True, exist_ok=True)
             with archive.open(member) as source, open(destination, "wb") as output:
                 shutil.copyfileobj(source, output)
+            copied_bundle_entries += 1
+
+        if copied_bundle_entries == 0:
+            raise ValueError("GitHub does not contain a dist/FocusQuest build")
 
     version_path = extracted_root / "version.json"
     if not version_path.is_file() or _read_version_file(version_path) != expected_version:
@@ -726,7 +760,7 @@ def _run_installer(app_root, version, commit, parent_pid):
             pass
 
 
-def _run_binary_installer(app_root, version, asset_url, parent_pid):
+def _run_binary_installer(app_root, version, commit, parent_pid):
     app_root = Path(app_root).resolve()
     staging_root = None
     try:
@@ -734,11 +768,12 @@ def _run_binary_installer(app_root, version, asset_url, parent_pid):
         staging_root = Path(tempfile.mkdtemp(
             prefix=".focusquest_update_", dir=app_root
         ))
-        archive_path = staging_root / "release.zip"
+        archive_path = staging_root / "github.zip"
         extracted_root = staging_root / "extracted"
-        _download_release_asset(asset_url, version, archive_path)
-        _extract_binary_release(archive_path, extracted_root, version)
+        _download_archive(commit, archive_path)
+        _extract_dist_bundle(archive_path, extracted_root, version)
         _apply_binary_release(app_root, extracted_root, staging_root)
+        _write_update_state(app_root, version, commit)
     except Exception as error:
         _show_install_error(str(error))
     finally:
