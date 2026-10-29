@@ -34,8 +34,10 @@ class DailyRewards:
             "date": date_key,
             "daily_quest_initiated": False,
             "daily_quest_rewarded": False,
+            "daily_quest_reward_pending": False,
+            "daily_quest_completion_popup_shown": False,
             "required_quests": random.randint(1, 5),
-            "quests_completed": 0,
+            "quests_completed_today": 0,
         }
 
     @staticmethod
@@ -48,7 +50,10 @@ class DailyRewards:
             required_quests = random.randint(1, 5)
 
         try:
-            quests_completed = max(0, int(saved_state.get("quests_completed", 0)))
+            quests_completed = max(0, int(saved_state.get(
+                "quests_completed_today",
+                saved_state.get("quests_completed", 0),
+            )))
         except (TypeError, ValueError):
             quests_completed = 0
 
@@ -60,8 +65,14 @@ class DailyRewards:
             "daily_quest_rewarded": bool(
                 saved_state.get("daily_quest_rewarded", False)
             ),
+            "daily_quest_reward_pending": bool(
+                saved_state.get("daily_quest_reward_pending", False)
+            ),
+            "daily_quest_completion_popup_shown": bool(
+                saved_state.get("daily_quest_completion_popup_shown", False)
+            ),
             "required_quests": required_quests,
-            "quests_completed": quests_completed,
+            "quests_completed_today": quests_completed,
         }
 
     def _load(self):
@@ -102,14 +113,29 @@ class DailyRewards:
 
     def record_quest_completion(self):
         """Record a completed quest and return any newly earned daily coins."""
-        self.state["quests_completed"] += 1
+        self.state["quests_completed_today"] += 1
         reward = 0
         if (
             not self.state["daily_quest_rewarded"]
-            and self.state["quests_completed"] >= self.state["required_quests"]
+            and not self.state["daily_quest_reward_pending"]
+            and self.state["quests_completed_today"] >= self.state["required_quests"]
         ):
             reward = self.state["required_quests"] * 30
-            self.state["daily_quest_rewarded"] = True
+            self.state["daily_quest_reward_pending"] = True
 
         self._save()
         return reward
+
+    def mark_rewarded(self, date_key):
+        """Mark a queued daily bonus as rewarded after its claim is confirmed."""
+        if self.state["date"] == date_key:
+            self.state["daily_quest_reward_pending"] = False
+            self.state["daily_quest_rewarded"] = True
+            self.state["daily_quest_completion_popup_shown"] = True
+            self._save()
+
+    def mark_completion_popup_shown(self, date_key):
+        """Acknowledge a completion notice for a reward already paid."""
+        if self.state["date"] == date_key:
+            self.state["daily_quest_completion_popup_shown"] = True
+            self._save()

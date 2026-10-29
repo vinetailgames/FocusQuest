@@ -54,6 +54,7 @@ class QuestManager:
         self.quests = []
         self.task_catalog = []
         self.coin_amount = 0
+        self.pending_rewards = []
         self.quests_paused = False
         self.on_quest_completed = None
         self.settings = QuestSettings(self)
@@ -199,14 +200,35 @@ class QuestManager:
     def _complete_quest(self, quest):
         earned_reward = quest.reward
         quest.completed = True
-        self.coin_amount += earned_reward
+        self.pending_rewards.append({"type": "quest", "amount": earned_reward})
         if self.quests and all(item.completed for item in self.quests):
             self._start_new_iteration()
         else:
             self.save()
         if self.on_quest_completed:
-            self.on_quest_completed()
+            daily_reward = self.on_quest_completed()
+            if daily_reward:
+                amount = max(0, int(daily_reward.get("amount", 0)))
+                if amount:
+                    self.pending_rewards.append({
+                        "type": "daily",
+                        "amount": amount,
+                        "daily_date": daily_reward.get("date"),
+                    })
+                    self.save()
         return earned_reward
+
+    def claim_next_reward(self):
+        """Credit and remove the oldest unclaimed quest reward."""
+        if not self.pending_rewards:
+            return 0
+
+        reward = self.pending_rewards.pop(0)
+        amount = reward.get("amount", 0)
+        if reward.get("type", "quest") != "daily_notice":
+            self.coin_amount += amount
+        self.save()
+        return amount
 
     def get_current_quest(self):
         return next((quest for quest in self.quests if not quest.completed), None)
@@ -278,12 +300,14 @@ class QuestManager:
         self.quests.clear()
         self.task_catalog.clear()
         self.coin_amount = 0
+        self.pending_rewards.clear()
         self.quests_paused = False
         self.save()
 
     def save(self):
         data = {
             "coin_amount": self.coin_amount,
+            "pending_rewards": self.pending_rewards,
             "task_catalog": self.task_catalog,
             "quests_paused": self.quests_paused,
             "quests": [q.to_dict() for q in self.quests]
@@ -299,6 +323,48 @@ class QuestManager:
             with open(DATA_FILE, "r") as f:
                 data = json.load(f)
             self.coin_amount = data.get("coin_amount", 0)
+            self.pending_rewards = []
+            for reward in data.get("pending_rewards", []):
+                if not isinstance(reward, dict):
+                    continue
+                try:
+                    amount = max(0, int(reward.get("amount", 0)))
+                except (TypeError, ValueError):
+                    continue
+                reward_type = reward.get("type", "quest")
+                daily_date = reward.get("daily_date")
+
+                if reward_type == "daily_notice":
+                    self.pending_rewards.append({
+                        "type": "daily_notice",
+                        "amount": amount,
+                        "daily_date": daily_date,
+                    })
+                elif reward_type == "daily":
+                    if amount:
+                        self.pending_rewards.append({
+                            "type": "daily",
+                            "amount": amount,
+                            "daily_date": daily_date,
+                        })
+                else:
+                    try:
+                        daily_bonus = max(0, int(reward.get("daily_bonus", 0)))
+                    except (TypeError, ValueError):
+                        daily_bonus = 0
+                    daily_bonus = min(amount, daily_bonus)
+                    quest_amount = amount - daily_bonus
+                    if quest_amount:
+                        self.pending_rewards.append({
+                            "type": "quest",
+                            "amount": quest_amount,
+                        })
+                    if daily_bonus:
+                        self.pending_rewards.append({
+                            "type": "daily",
+                            "amount": daily_bonus,
+                            "daily_date": daily_date,
+                        })
             self.quests_paused = bool(data.get("quests_paused", False))
             loaded_quests = [Quest.from_dict(q) for q in data.get("quests", [])]
             migrated_task_lists = "task_catalog" not in data
@@ -328,4 +394,5 @@ class QuestManager:
             self.quests = []
             self.task_catalog = []
             self.coin_amount = 0
+            self.pending_rewards = []
             self.quests_paused = False
