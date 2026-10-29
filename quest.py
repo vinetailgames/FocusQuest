@@ -4,6 +4,7 @@ import math
 import os
 import random
 from constants import DATA_FILE
+from settings import QuestSettings
 
 class Quest:
     def __init__(self, task_name, quest_type, subtype, target_value, reward, description, completed=False, tasks=None, source_tasks=None):
@@ -54,6 +55,7 @@ class QuestManager:
         self.task_catalog = []
         self.coin_amount = 0
         self.quests_paused = False
+        self.settings = QuestSettings(self)
         self.load()
 
     def _make_quest_variant(self, task_name, quest_type):
@@ -206,28 +208,11 @@ class QuestManager:
     def get_current_quest(self):
         return next((quest for quest in self.quests if not quest.completed), None)
 
-    def toggle_quests_paused(self):
-        self.quests_paused = not self.quests_paused
-        self.save()
-        return self.quests_paused
-
     def set_current_quest(self, index):
         if 0 <= index < len(self.quests):
             quest = self.quests.pop(index)
             self.quests.insert(0, quest)
             self.save()
-
-    def shuffle_quests(self):
-        """Randomize quest order without changing goals or quest categories."""
-        if len(self.quests) < 2:
-            return False
-
-        previous_order = tuple(id(quest) for quest in self.quests)
-        random.shuffle(self.quests)
-        if tuple(id(quest) for quest in self.quests) == previous_order:
-            self.quests[0], self.quests[1] = self.quests[1], self.quests[0]
-        self.save()
-        return True
 
     def add_progress(self, amount):
         if self.quests_paused:

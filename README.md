@@ -45,7 +45,7 @@ The main screen shows your coins in the upper left, the Pomodoro timer near the 
 
 Click the current quest button to open the quest list. Click **+ Add Quest** and choose a quest category. For a Main or Side quest, enter one task name. For a Task List, enter one task on each line; press **Enter** to start the next line, then click **Confirm**. Blank lines are ignored.
 
-Use **Pause Quests** at the bottom center of the quest window to pause quest progress. While paused, the current quest display says **Quests paused**, completed study sessions do not add progress, and Task List checkboxes are unavailable. Click **Start Quests** to resume.
+In the quest window, click the gear at the bottom right to open quest settings. **Pause Quests** and **Start Quests** take effect immediately. **Shuffle**, **Reset Quests**, and **Delete All** ask for confirmation. Reset Quests clears quest progress and completion while restoring checked-off tasks; Delete All removes quests and the saved task pool but keeps coins. While paused, the current quest display says **Quests paused**, completed study sessions do not add progress, and Task List checkboxes are unavailable.
 
 - **Main quest** — Use this for your main task. Its goal is randomly set to either 1–2 completed study sessions or 60–180 study minutes, in 5-minute increments. Completing it earns 60 coins per Pomodoro, or 2 coins per minute.
 - **Side quest** — Use this for side work. Its goal is randomly set to either 1–4 completed study sessions or 30–90 study minutes, in 5-minute increments. Completing it earns 45 coins per Pomodoro, or 1.5 coins per minute, rounded up.

@@ -10,6 +10,7 @@ from quest import QuestManager
 from timer import PomodoroTimer
 from updater import UpdateService, launch_installer
 from coin_ui import CoinUI
+from settings import SettingsMenu
 
 def load_background():
     try:
@@ -120,9 +121,10 @@ def main():
     task_list_input = MultilineInputBox(0, 0, 500, 300)
     study_input = InputBox(0, 0, 80, 36, "25")
     break_input = InputBox(0, 0, 80, 36, "5")
+    quest_window_rect = pygame.Rect(SCREEN_WIDTH // 2 - 280, 80, 560, 520)
+    settings_menu = SettingsMenu(quest_window_rect)
 
     add_button = Button(0, 0, 140, 40, "+ Add Quest")
-    shuffle_button = Button(0, 0, 140, 40, "Shuffle")
     type_main_btn = Button(0, 0, 120, 36, "Main")
     type_side_btn = Button(0, 0, 120, 36, "Side")
     type_task_btn = Button(0, 0, 140, 36, "Task List")
@@ -132,8 +134,6 @@ def main():
     start_timer_btn = Button(0, 0, 120, 40, "Start")
     pause_timer_btn = Button(0, 0, 120, 40, "Pause")
     stop_timer_btn = Button(0, 0, 120, 40, "Stop")
-    quest_window_rect = pygame.Rect(SCREEN_WIDTH // 2 - 280, 80, 560, 520)
-    pause_quests_button = Button(0, 0, 160, 40, "Pause Quests")
     quest_list_visible_rows = 12
 
     bell_rect = pygame.Rect(20, 18, 40, 40)
@@ -163,7 +163,7 @@ def main():
     )
 
     def focused_text_input():
-        if announcements_open:
+        if announcements_open or settings_menu.is_open or settings_menu.pending_action:
             return None
         if show_quest_window and creating_quest:
             candidate = task_list_input if selected_type == "task_list" else name_input
@@ -202,16 +202,10 @@ def main():
             else:
                 quest_button.set_text("No Quest Available")
 
-    def update_pause_quests_button():
-        pause_quests_button.set_text(
-            "Start Quests" if quest_manager.quests_paused else "Pause Quests"
-        )
-
     def task_panel_top():
         return max(80, quest_button.rect.bottom + 10)
 
     update_quest_button()
-    update_pause_quests_button()
 
     running = True
     delete_key_held = False
@@ -303,8 +297,40 @@ def main():
                 if focused_text_input() is None:
                     quest_manager.reset_all()
                     update_quest_button()
-                    update_pause_quests_button()
                     print("All data reset!")
+
+            settings_visible = show_quest_window and not creating_quest
+            settings_action = settings_menu.handle_event(event, visible=settings_visible)
+            if settings_action == "toggle" and settings_menu.is_open:
+                for text_box in (name_input, task_list_input, study_input, break_input):
+                    text_box.active = False
+                    text_box.color = LIGHT_GRAY
+            if settings_action == "pause":
+                quest_manager.settings.toggle_quests_paused()
+                update_quest_button()
+                continue
+            if settings_action == "confirm_shuffle":
+                quest_manager.settings.shuffle_quests()
+                update_quest_button()
+                continue
+            if settings_action == "confirm_reset":
+                quest_manager.settings.reset_quests()
+                update_quest_button()
+                quest_list_scroll = 0
+                continue
+            if settings_action == "confirm_delete":
+                quest_manager.settings.delete_all()
+                update_quest_button()
+                quest_list_scroll = 0
+                continue
+            if settings_action in (
+                "toggle",
+                "inside",
+                "confirm_required",
+                "confirmation_inside",
+                "cancel_confirmation",
+            ):
+                continue
 
             # Main buttons
             if music_button.is_clicked(event):
@@ -391,14 +417,7 @@ def main():
             # Quest creation
             if show_quest_window:
                 if not creating_quest:
-                    if not context_menu_was_open and pause_quests_button.is_clicked(event):
-                        quest_manager.toggle_quests_paused()
-                        update_quest_button()
-                        update_pause_quests_button()
-                    elif not context_menu_was_open and shuffle_button.is_clicked(event):
-                        quest_manager.shuffle_quests()
-                        update_quest_button()
-                    elif not context_menu_was_open and add_button.is_clicked(event):
+                    if not context_menu_was_open and add_button.is_clicked(event):
                         creating_quest = True
                         editing_index = None
                         name_input.set_text("")
@@ -530,8 +549,10 @@ def main():
                 cancel_btn.update(mouse_pos)
             else:
                 add_button.update(mouse_pos)
-                shuffle_button.update(mouse_pos)
-                pause_quests_button.update(mouse_pos)
+
+        settings_menu.update(
+            mouse_pos, visible=show_quest_window and not creating_quest
+        )
 
         if show_timer_window:
             start_timer_btn.update(mouse_pos)
@@ -630,14 +651,7 @@ def main():
                     pygame.draw.rect(screen, LIGHT_GRAY, thumb, border_radius=3)
 
                 add_button.rect.topleft = (window.x + 20, window.bottom - 60)
-                pause_quests_button.rect.topleft = (
-                    window.centerx - pause_quests_button.rect.width // 2,
-                    window.bottom - 60
-                )
-                shuffle_button.rect.topleft = (window.right - 160, window.bottom - 60)
                 add_button.draw(screen)
-                pause_quests_button.draw(screen)
-                shuffle_button.draw(screen)
             else:
                 label = normal_font.render("Type:", True, WHITE)
                 screen.blit(label, (window.x + 30, window.y + 45))
@@ -705,6 +719,12 @@ def main():
             start_timer_btn.draw(screen)
             pause_timer_btn.draw(screen)
             stop_timer_btn.draw(screen)
+
+        settings_menu.draw(
+            screen,
+            quest_manager.quests_paused,
+            visible=show_quest_window and not creating_quest,
+        )
 
         if announcements_open:
             shade = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
