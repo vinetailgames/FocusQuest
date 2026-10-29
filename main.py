@@ -82,6 +82,7 @@ def draw_bell_icon(surface, rect, has_announcement):
 def main():
     pygame.init()
     pygame.mixer.init()
+    pygame.key.set_repeat(400, 35)
     display = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.RESIZABLE)
     screen = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT)).convert()
     pygame.display.set_caption(TITLE)
@@ -161,6 +162,20 @@ def main():
         110, 40, "No", font_size=24, bg_color=RED
     )
 
+    def focused_text_input():
+        if announcements_open:
+            return None
+        if show_quest_window and creating_quest:
+            candidate = task_list_input if selected_type == "task_list" else name_input
+            if candidate.active:
+                return candidate
+        if show_timer_window:
+            if study_input.active:
+                return study_input
+            if break_input.active:
+                return break_input
+        return None
+
     def quest_list_row_rect(visible_index):
         row_y = quest_window_rect.y + 55 + visible_index * 32
         return pygame.Rect(quest_window_rect.x + 25, row_y, 510, 30)
@@ -199,6 +214,8 @@ def main():
     update_pause_quests_button()
 
     running = True
+    delete_key_held = False
+    text_input_started = False
     while running:
         dt = clock.tick(FPS)
         mouse_pos = to_logical_pos(pygame.mouse.get_pos(), display.get_size())
@@ -224,6 +241,9 @@ def main():
             if event.type == pygame.QUIT:
                 running = False
                 continue
+
+            if event.type == pygame.KEYUP and event.key == pygame.K_DELETE:
+                delete_key_held = False
 
             if announcements_open:
                 if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
@@ -274,11 +294,17 @@ def main():
                 update_service.request_check()
                 continue
 
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_DELETE:
-                quest_manager.reset_all()
-                update_quest_button()
-                update_pause_quests_button()
-                print("All data reset!")
+            if (
+                event.type == pygame.KEYDOWN
+                and event.key == pygame.K_DELETE
+                and not delete_key_held
+            ):
+                delete_key_held = True
+                if focused_text_input() is None:
+                    quest_manager.reset_all()
+                    update_quest_button()
+                    update_pause_quests_button()
+                    print("All data reset!")
 
             # Main buttons
             if music_button.is_clicked(event):
@@ -348,12 +374,11 @@ def main():
                     editing_index = idx
                     selected_type = selected_quest.quest_type
                     if selected_type == "task_list":
-                        task_list_input.text = "\n".join(quest_manager.task_catalog)
+                        task_list_input.set_text("\n".join(quest_manager.task_catalog))
                         task_list_input.active = False
                         task_list_input.color = LIGHT_GRAY
                     else:
-                        name_input.text = selected_quest.task_name
-                        name_input.txt_surface = name_input.font.render(name_input.text, True, WHITE)
+                        name_input.set_text(selected_quest.task_name)
                     creating_quest = True
                     context_menu = None
                 elif pygame.Rect(mx, my + 30, 120, 30).collidepoint(event.pos):
@@ -376,9 +401,9 @@ def main():
                     elif not context_menu_was_open and add_button.is_clicked(event):
                         creating_quest = True
                         editing_index = None
-                        name_input.text = ""
-                        name_input.txt_surface = name_input.font.render("", True, WHITE)
-                        task_list_input.text = ""
+                        name_input.set_text("")
+                        task_list_input.set_text("")
+                        name_input.active = False
                         task_list_input.active = False
                         task_list_input.color = LIGHT_GRAY
                 else:
@@ -416,6 +441,8 @@ def main():
                     if cancel_btn.is_clicked(event):
                         creating_quest = False
                         editing_index = None
+                        name_input.active = False
+                        name_input.color = LIGHT_GRAY
                         task_list_input.active = False
                         task_list_input.color = LIGHT_GRAY
 
@@ -454,6 +481,17 @@ def main():
 
                 if stop_timer_btn.is_clicked(event):
                     timer.stop()
+
+        has_text_focus = focused_text_input() is not None
+        if has_text_focus != text_input_started:
+            try:
+                if has_text_focus:
+                    pygame.key.start_text_input()
+                else:
+                    pygame.key.stop_text_input()
+            except pygame.error:
+                pass
+            text_input_started = has_text_focus
 
         # Update timer
         timer.update(dt)
