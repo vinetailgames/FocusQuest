@@ -1,4 +1,4 @@
-"""Quest settings actions and their bottom-right gear menu."""
+"""Quest options and their bottom-right gear menu."""
 
 import math
 import random
@@ -229,7 +229,7 @@ class SettingsMenu:
         elif self.is_open:
             pygame.draw.rect(surface, (25, 25, 35), self.popup_rect, border_radius=10)
             pygame.draw.rect(surface, LIGHT_GRAY, self.popup_rect, 2, border_radius=10)
-            heading = self.font.render("Quest Settings", True, GOLD)
+            heading = self.font.render("Quest Options", True, GOLD)
             surface.blit(heading, (self.popup_rect.x + 12, self.popup_rect.y + 8))
 
             self._draw_option(

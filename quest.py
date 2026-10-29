@@ -4,7 +4,7 @@ import math
 import os
 import random
 from constants import DATA_FILE
-from settings import QuestSettings
+from quest_options import QuestSettings
 
 class Quest:
     def __init__(self, task_name, quest_type, subtype, target_value, reward, description, completed=False, tasks=None, source_tasks=None):

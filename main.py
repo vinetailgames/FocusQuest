@@ -10,7 +10,7 @@ from quest import QuestManager
 from timer import PomodoroTimer
 from updater import UpdateService, launch_installer
 from coin_ui import CoinUI
-from settings import SettingsMenu
+from quest_options import SettingsMenu
 
 def load_background():
     try:
