@@ -131,9 +131,9 @@ def main():
     confirm_btn = Button(0, 0, 120, 40, "Confirm")
     cancel_btn = Button(0, 0, 120, 40, "Cancel")
 
-    start_timer_btn = Button(0, 0, 120, 40, "Start")
-    pause_timer_btn = Button(0, 0, 120, 40, "Pause")
-    stop_timer_btn = Button(0, 0, 120, 40, "Stop")
+    start_timer_btn = Button(0, 0, 110, 36, "Start")
+    pause_timer_btn = Button(0, 0, 110, 36, "Pause")
+    stop_timer_btn = Button(0, 0, 110, 36, "Stop")
     quest_list_visible_rows = 12
 
     bell_rect = pygame.Rect(20, 18, 40, 40)
@@ -483,19 +483,21 @@ def main():
                 break_input.handle_event(event)
 
                 if start_timer_btn.is_clicked(event):
-                    try:
-                        s = int(study_input.text)
-                        b = int(break_input.text)
-                        timer.set_times(s, b)
+                    if timer.paused:
                         timer.start()
                         show_timer_window = False
-                    except ValueError:
-                        pass
+                    else:
+                        try:
+                            s = int(study_input.text)
+                            b = int(break_input.text)
+                            timer.set_times(s, b)
+                            timer.start()
+                            show_timer_window = False
+                        except ValueError:
+                            pass
 
                 if pause_timer_btn.is_clicked(event):
-                    if timer.paused:
-                        timer.resume()
-                    else:
+                    if timer.running and not timer.paused:
                         timer.pause()
 
                 if stop_timer_btn.is_clicked(event):
@@ -695,7 +697,7 @@ def main():
 
         # Timer window
         if show_timer_window:
-            window = pygame.Rect(SCREEN_WIDTH // 2 - 190, 120, 380, 300)
+            window = pygame.Rect(SCREEN_WIDTH // 2 - 190, 120, 380, 240)
             pygame.draw.rect(screen, (25, 25, 35), window, border_radius=14)
             pygame.draw.rect(screen, LIGHT_GRAY, window, 2, border_radius=14)
 
@@ -712,9 +714,9 @@ def main():
             break_input.rect.topleft = (window.x + 160, window.y + 115)
             break_input.draw(screen)
 
-            start_timer_btn.rect.topleft = (window.x + 30, window.y + 180)
-            pause_timer_btn.rect.topleft = (window.x + 160, window.y + 180)
-            stop_timer_btn.rect.topleft = (window.x + 30, window.y + 240)
+            start_timer_btn.rect.topleft = (window.x + 15, window.y + 180)
+            pause_timer_btn.rect.topleft = (window.x + 135, window.y + 180)
+            stop_timer_btn.rect.topleft = (window.x + 255, window.y + 180)
 
             start_timer_btn.draw(screen)
             pause_timer_btn.draw(screen)
