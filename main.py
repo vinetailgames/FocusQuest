@@ -635,7 +635,7 @@ def main():
                     if quest_index >= len(quest_manager.quests):
                         break
                     q = quest_manager.quests[quest_index]
-                    status = "✓" if q.completed else "○"
+                    status = "-"
                     color = GREEN if q.completed else WHITE
                     text = f"{status} {q.description}"
                     label = normal_font.render(text[:50], True, color)
