@@ -20,6 +20,7 @@ release_workflow.txt
 # Save data (keep personal progress local)
 data/save.json
 data/*.json
+debug.json
 
 # IDE / OS
 .vscode/

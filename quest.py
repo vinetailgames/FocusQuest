@@ -55,6 +55,7 @@ class QuestManager:
         self.task_catalog = []
         self.coin_amount = 0
         self.quests_paused = False
+        self.on_quest_completed = None
         self.settings = QuestSettings(self)
         self.load()
 
@@ -203,6 +204,8 @@ class QuestManager:
             self._start_new_iteration()
         else:
             self.save()
+        if self.on_quest_completed:
+            self.on_quest_completed()
         return earned_reward
 
     def get_current_quest(self):

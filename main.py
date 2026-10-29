@@ -11,6 +11,7 @@ from timer import PomodoroTimer
 from updater import UpdateService, launch_installer
 from coin_ui import CoinUI
 from quest_options import SettingsMenu
+from daily_rewards import DailyRewards
 
 def load_background():
     try:
@@ -92,6 +93,7 @@ def main():
     background = load_background()
     music_player = MusicPlayer()
     quest_manager = QuestManager()
+    daily_rewards = DailyRewards()
     timer = PomodoroTimer()
     update_service = UpdateService(BASE_DIR)
     update_service.start()
@@ -145,6 +147,14 @@ def main():
     announcements_rect = pygame.Rect(
         SCREEN_WIDTH // 2 - 300, SCREEN_HEIGHT // 2 - 150, 600, 300
     )
+    daily_reward_rect = pygame.Rect(
+        SCREEN_WIDTH // 2 - 260, SCREEN_HEIGHT // 2 - 120, 520, 240
+    )
+    daily_reward_ok_button = Button(
+        daily_reward_rect.right - 118, daily_reward_rect.bottom - 58,
+        98, 38, "ok", font_size=24
+    )
+    daily_reward_popup_open = daily_rewards.show_challenge_once()
     announcements_close_button = Button(
         announcements_rect.right - 52, announcements_rect.y + 14,
         36, 34, "X", font_size=22
@@ -163,7 +173,12 @@ def main():
     )
 
     def focused_text_input():
-        if announcements_open or settings_menu.is_open or settings_menu.pending_action:
+        if (
+            daily_reward_popup_open
+            or announcements_open
+            or settings_menu.is_open
+            or settings_menu.pending_action
+        ):
             return None
         if show_quest_window and creating_quest:
             candidate = task_list_input if selected_type == "task_list" else name_input
@@ -205,6 +220,15 @@ def main():
     def task_panel_top():
         return max(80, quest_button.rect.bottom + 10)
 
+    def on_quest_completed():
+        daily_reward = daily_rewards.record_quest_completion()
+        if daily_reward:
+            quest_manager.coin_amount += daily_reward
+            quest_manager.save()
+            print(f"Daily reward earned! +{daily_reward} coins")
+
+    quest_manager.on_quest_completed = on_quest_completed
+
     update_quest_button()
 
     running = True
@@ -213,6 +237,9 @@ def main():
     while running:
         dt = clock.tick(FPS)
         mouse_pos = to_logical_pos(pygame.mouse.get_pos(), display.get_size())
+
+        if daily_rewards.check_for_new_day():
+            daily_reward_popup_open = daily_rewards.show_challenge_once()
 
         for raw_event in pygame.event.get():
             if raw_event.type == getattr(pygame, "VIDEORESIZE", -1):
@@ -238,6 +265,15 @@ def main():
 
             if event.type == pygame.KEYUP and event.key == pygame.K_DELETE:
                 delete_key_held = False
+
+            if daily_reward_popup_open:
+                if (
+                    event.type == pygame.MOUSEBUTTONDOWN
+                    and event.button == 1
+                    and daily_reward_ok_button.is_clicked(event)
+                ):
+                    daily_reward_popup_open = False
+                continue
 
             if announcements_open:
                 if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
@@ -567,6 +603,9 @@ def main():
             confirm_yes_button.update(mouse_pos)
             confirm_no_button.update(mouse_pos)
 
+        if daily_reward_popup_open:
+            daily_reward_ok_button.update(mouse_pos)
+
         # ===== DRAW =====
         screen.blit(background, (0, 0))
 
@@ -801,6 +840,37 @@ def main():
                 ))
 
             announcements_close_button.draw(screen)
+
+        if daily_reward_popup_open:
+            shade = pygame.Surface(screen.get_size(), pygame.SRCALPHA)
+            shade.fill((0, 0, 0, 165))
+            screen.blit(shade, (0, 0))
+
+            pygame.draw.rect(
+                screen, (25, 25, 35), daily_reward_rect, border_radius=14
+            )
+            pygame.draw.rect(
+                screen, LIGHT_GRAY, daily_reward_rect, 2, border_radius=14
+            )
+            title = normal_font.render("Daily Challenge", True, GOLD)
+            screen.blit(title, title.get_rect(
+                center=(daily_reward_rect.centerx, daily_reward_rect.y + 48)
+            ))
+
+            required_quests = daily_rewards.state["required_quests"]
+            message = (
+                f"You must complete {required_quests} quests for daily reward "
+                f"of {required_quests * 30} coins."
+            )
+            for line_index, line in enumerate(textwrap.wrap(message, width=40)):
+                message_surface = small_font.render(line, True, WHITE)
+                screen.blit(message_surface, message_surface.get_rect(
+                    center=(
+                        daily_reward_rect.centerx,
+                        daily_reward_rect.y + 105 + line_index * 30,
+                    )
+                ))
+            daily_reward_ok_button.draw(screen)
 
         display.blit(pygame.transform.smoothscale(screen, display.get_size()), (0, 0))
         pygame.display.flip()
