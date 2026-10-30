@@ -21,17 +21,23 @@ class QuestSettings:
         return manager.quests_paused
 
     def shuffle_quests(self):
-        """Randomize quest order without changing goals or quest categories."""
+        """Shuffle active quests while leaving completed quests in place at bottom."""
         manager = self.quest_manager
-        if len(manager.quests) < 2:
-            return False
-
         previous_order = tuple(id(quest) for quest in manager.quests)
-        random.shuffle(manager.quests)
-        if tuple(id(quest) for quest in manager.quests) == previous_order:
-            manager.quests[0], manager.quests[1] = manager.quests[1], manager.quests[0]
-        manager.save()
-        return True
+        active = [quest for quest in manager.quests if not quest.completed]
+        completed = [quest for quest in manager.quests if quest.completed]
+
+        if len(active) > 1:
+            previous_active_order = tuple(id(quest) for quest in active)
+            random.shuffle(active)
+            if tuple(id(quest) for quest in active) == previous_active_order:
+                active[0], active[1] = active[1], active[0]
+
+        manager.quests[:] = active + completed
+        changed = tuple(id(quest) for quest in manager.quests) != previous_order
+        if changed:
+            manager.save()
+        return changed
 
     def reset_quests(self):
         """Make every quest active again and restore its starting progress."""

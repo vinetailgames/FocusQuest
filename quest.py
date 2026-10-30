@@ -99,6 +99,16 @@ class QuestManager:
             task_names = task_names.splitlines()
         return [task.strip() for task in task_names if task.strip()]
 
+    def _sort_completed_to_bottom(self):
+        """Keep active quests first and completed quests last, stably."""
+        active = [quest for quest in self.quests if not quest.completed]
+        completed = [quest for quest in self.quests if quest.completed]
+        ordered = active + completed
+        changed = any(old is not new for old, new in zip(self.quests, ordered))
+        if changed:
+            self.quests[:] = ordered
+        return changed
+
     def _make_task_list_quest(self, tasks):
         task_names = list(tasks)
         subtype = random.choice([1, 2])
@@ -143,6 +153,7 @@ class QuestManager:
         self.task_catalog.extend(task_names)
         generated = self._generate_task_list_quests(task_names)
         self.quests.extend(generated)
+        self._sort_completed_to_bottom()
         self.save()
         return generated
 
@@ -152,7 +163,10 @@ class QuestManager:
         self.quests = [quest for quest in self.quests if quest.quest_type != "task_list"]
         generated = self._generate_task_list_quests(self.task_catalog)
         self.quests.extend(generated)
-        random.shuffle(self.quests)
+        active = [quest for quest in self.quests if not quest.completed]
+        completed = [quest for quest in self.quests if quest.completed]
+        random.shuffle(active)
+        self.quests[:] = active + completed
         self.save()
 
     def add_quest(self, task_name, quest_type):
@@ -168,6 +182,7 @@ class QuestManager:
         if quest is None:
             return None
         self.quests.append(quest)
+        self._sort_completed_to_bottom()
         self.save()
         return quest
 
@@ -204,6 +219,7 @@ class QuestManager:
         if self.quests and all(item.completed for item in self.quests):
             self._start_new_iteration()
         else:
+            self._sort_completed_to_bottom()
             self.save()
         if self.on_quest_completed:
             daily_reward = self.on_quest_completed()
@@ -235,8 +251,11 @@ class QuestManager:
 
     def set_current_quest(self, index):
         if 0 <= index < len(self.quests):
+            if self.quests[index].completed:
+                return
             quest = self.quests.pop(index)
             self.quests.insert(0, quest)
+            self._sort_completed_to_bottom()
             self.save()
 
     def add_progress(self, amount):
@@ -383,11 +402,12 @@ class QuestManager:
                 self.task_catalog = self._clean_task_names(data.get("task_catalog") or [])
                 self.quests = loaded_quests
 
+            order_changed = self._sort_completed_to_bottom()
             if (self.quests and all(q.completed for q in self.quests)) or (
                 migrated_task_lists and loaded_iteration_complete
             ):
                 self._start_new_iteration()
-            elif migrated_task_lists:
+            elif migrated_task_lists or order_changed:
                 self.save()
         except Exception as e:
             print(f"Error loading save: {e}")
