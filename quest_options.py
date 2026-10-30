@@ -49,6 +49,10 @@ class QuestSettings:
                 quest.tasks = list(quest.source_tasks)
         manager.save()
 
+    def regen_quests(self):
+        """Reroll every quest goal while keeping its task and quest type."""
+        self.quest_manager.regen_quests()
+
     def delete_all(self):
         """Remove every quest and saved task while preserving the coin balance."""
         manager = self.quest_manager
@@ -70,21 +74,24 @@ class SettingsMenu:
         )
         self.popup_rect = pygame.Rect(
             self.quest_window_rect.right - 244,
-            self.icon_rect.top - 188 - 10,
+            self.icon_rect.top - 223 - 10,
             224,
-            188,
-        )
-        self.pause_rect = pygame.Rect(
-            self.popup_rect.x + 12, self.popup_rect.y + 34, self.popup_rect.width - 24, 30
-        )
-        self.shuffle_rect = pygame.Rect(
-            self.popup_rect.x + 12, self.popup_rect.y + 69, self.popup_rect.width - 24, 30
+            223,
         )
         self.reset_rect = pygame.Rect(
+            self.popup_rect.x + 12, self.popup_rect.y + 34, self.popup_rect.width - 24, 30
+        )
+        self.regen_rect = pygame.Rect(
+            self.popup_rect.x + 12, self.popup_rect.y + 69, self.popup_rect.width - 24, 30
+        )
+        self.shuffle_rect = pygame.Rect(
             self.popup_rect.x + 12, self.popup_rect.y + 104, self.popup_rect.width - 24, 30
         )
-        self.delete_rect = pygame.Rect(
+        self.pause_rect = pygame.Rect(
             self.popup_rect.x + 12, self.popup_rect.y + 139, self.popup_rect.width - 24, 30
+        )
+        self.delete_rect = pygame.Rect(
+            self.popup_rect.x + 12, self.popup_rect.y + 174, self.popup_rect.width - 24, 30
         )
         self.confirm_rect = pygame.Rect(
             self.quest_window_rect.centerx - 190,
@@ -107,6 +114,7 @@ class SettingsMenu:
         self.pause_hovered = False
         self.shuffle_hovered = False
         self.reset_hovered = False
+        self.regen_hovered = False
         self.delete_hovered = False
         self.yes_hovered = False
         self.no_hovered = False
@@ -118,6 +126,7 @@ class SettingsMenu:
             self.pause_hovered = False
             self.shuffle_hovered = False
             self.reset_hovered = False
+            self.regen_hovered = False
             self.delete_hovered = False
             self.yes_hovered = False
             self.no_hovered = False
@@ -130,11 +139,13 @@ class SettingsMenu:
             self.pause_hovered = False
             self.shuffle_hovered = False
             self.reset_hovered = False
+            self.regen_hovered = False
             self.delete_hovered = False
         else:
             self.pause_hovered = self.is_open and self.pause_rect.collidepoint(mouse_pos)
             self.shuffle_hovered = self.is_open and self.shuffle_rect.collidepoint(mouse_pos)
             self.reset_hovered = self.is_open and self.reset_rect.collidepoint(mouse_pos)
+            self.regen_hovered = self.is_open and self.regen_rect.collidepoint(mouse_pos)
             self.delete_hovered = self.is_open and self.delete_rect.collidepoint(mouse_pos)
             self.yes_hovered = False
             self.no_hovered = False
@@ -169,17 +180,21 @@ class SettingsMenu:
         if not self.is_open:
             return None
 
-        if self.pause_rect.collidepoint(event.pos):
-            self.is_open = False
-            return "pause"
-        if self.shuffle_rect.collidepoint(event.pos):
-            self.is_open = False
-            self.pending_action = "shuffle"
-            return "confirm_required"
         if self.reset_rect.collidepoint(event.pos):
             self.is_open = False
             self.pending_action = "reset"
             return "confirm_required"
+        if self.regen_rect.collidepoint(event.pos):
+            self.is_open = False
+            self.pending_action = "regen"
+            return "confirm_required"
+        if self.shuffle_rect.collidepoint(event.pos):
+            self.is_open = False
+            self.pending_action = "shuffle"
+            return "confirm_required"
+        if self.pause_rect.collidepoint(event.pos):
+            self.is_open = False
+            return "pause"
         if self.delete_rect.collidepoint(event.pos):
             self.is_open = False
             self.pending_action = "delete"
@@ -238,19 +253,21 @@ class SettingsMenu:
             heading = self.font.render("Quest Options", True, GOLD)
             surface.blit(heading, (self.popup_rect.x + 12, self.popup_rect.y + 8))
 
+            self._draw_option(surface, self.reset_rect, "Reset Quests", self.reset_hovered)
+            self._draw_option(surface, self.regen_rect, "Regen Quests", self.regen_hovered)
+            self._draw_option(surface, self.shuffle_rect, "Shuffle Quests", self.shuffle_hovered)
             self._draw_option(
                 surface, self.pause_rect,
                 "Start Quests" if quests_paused else "Pause Quests",
                 self.pause_hovered,
             )
-            self._draw_option(surface, self.shuffle_rect, "Shuffle", self.shuffle_hovered)
-            self._draw_option(surface, self.reset_rect, "Reset Quests", self.reset_hovered)
             self._draw_option(surface, self.delete_rect, "Delete All", self.delete_hovered)
 
     def _confirmation_prompt(self):
         action_text = {
-            "shuffle": "shuffle quests",
             "reset": "reset quests",
+            "regen": "regenerate quests",
+            "shuffle": "shuffle quests",
             "delete": "delete all",
         }[self.pending_action]
         return f"Are you sure you want to {action_text}?"

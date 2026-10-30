@@ -408,6 +408,11 @@ def main():
                 update_quest_button()
                 quest_list_scroll = 0
                 continue
+            if settings_action == "confirm_regen":
+                quest_manager.settings.regen_quests()
+                update_quest_button()
+                quest_list_scroll = 0
+                continue
             if settings_action == "confirm_delete":
                 quest_manager.settings.delete_all()
                 update_quest_button()

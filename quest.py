@@ -212,6 +212,34 @@ class QuestManager:
             random.shuffle(self.quests)
         self.save()
 
+    def regen_quests(self):
+        """Reroll current quest goals without changing their task assignments."""
+        regenerated = []
+        for quest in self.quests:
+            if quest.quest_type in ("main", "side"):
+                new_quest = self._make_quest_variant(quest.task_name, quest.quest_type)
+                while (new_quest.subtype, new_quest.target_value) == (
+                    quest.subtype, quest.target_value
+                ):
+                    new_quest = self._make_quest_variant(quest.task_name, quest.quest_type)
+            elif quest.quest_type == "task_list":
+                source_tasks = list(quest.source_tasks)
+                new_quest = self._make_task_list_quest(source_tasks)
+                while (new_quest.subtype, new_quest.target_value) == (
+                    quest.subtype, quest.target_value
+                ):
+                    new_quest = self._make_task_list_quest(source_tasks)
+            else:
+                regenerated.append(quest)
+                continue
+
+            new_quest.completed = False
+            new_quest.progress = 0
+            regenerated.append(new_quest)
+
+        self.quests[:] = regenerated
+        self.save()
+
     def _complete_quest(self, quest):
         earned_reward = quest.reward
         quest.completed = True
