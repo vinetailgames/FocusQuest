@@ -8,12 +8,14 @@ from datetime import datetime
 from constants import BASE_DIR
 
 
-DEBUG_FILE = os.path.join(BASE_DIR, "debug.json")
+DAILY_REWARDS_FILE = os.path.join(BASE_DIR, "data", "daily_rewards.json")
+LEGACY_DEBUG_FILE = os.path.join(BASE_DIR, "debug.json")
 
 
 class DailyRewards:
-    def __init__(self, debug_file=DEBUG_FILE):
-        self.debug_file = debug_file
+    def __init__(self, state_file=DAILY_REWARDS_FILE):
+        self.state_file = state_file
+        self.migrated_legacy_state = False
         today = self._today_key()
 
         saved_state = self._load()
@@ -22,6 +24,11 @@ class DailyRewards:
         else:
             self.state = self._new_day_state(today)
         self._save()
+        if self.migrated_legacy_state:
+            try:
+                os.remove(LEGACY_DEBUG_FILE)
+            except OSError:
+                pass
 
     @staticmethod
     def _today_key():
@@ -76,20 +83,31 @@ class DailyRewards:
         }
 
     def _load(self):
-        if not os.path.exists(self.debug_file):
-            return None
-        try:
-            with open(self.debug_file, "r", encoding="utf-8") as file:
-                state = json.load(file)
-            return state if isinstance(state, dict) else None
-        except (OSError, json.JSONDecodeError):
-            return None
+        paths_to_check = [self.state_file]
+        if self.state_file == DAILY_REWARDS_FILE:
+            paths_to_check.append(LEGACY_DEBUG_FILE)
+
+        for state_path in paths_to_check:
+            if not os.path.exists(state_path):
+                continue
+            try:
+                with open(state_path, "r", encoding="utf-8") as file:
+                    state = json.load(file)
+                if isinstance(state, dict):
+                    self.migrated_legacy_state = (
+                        state_path == LEGACY_DEBUG_FILE
+                        and self.state_file == DAILY_REWARDS_FILE
+                    )
+                    return state
+            except (OSError, json.JSONDecodeError):
+                continue
+        return None
 
     def _save(self):
-        directory = os.path.dirname(self.debug_file)
+        directory = os.path.dirname(self.state_file)
         if directory:
             os.makedirs(directory, exist_ok=True)
-        with open(self.debug_file, "w", encoding="utf-8") as file:
+        with open(self.state_file, "w", encoding="utf-8") as file:
             json.dump(self.state, file, indent=2)
 
     def check_for_new_day(self):

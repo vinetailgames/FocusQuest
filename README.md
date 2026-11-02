@@ -67,7 +67,7 @@ Click **Music** in the lower left to show the available songs. Put `.mp3`, `.ogg
 
 ### Coins and saved data
 
-Coins are awarded automatically when a quest is completed and appear in the upper left. Your coins, quests, and saved task pool are stored in `data/save.json`.
+Coins are awarded automatically when a quest is completed and appear in the upper left. Your coins, quests, and saved task pool are stored in `data/save.json`; daily challenge progress is stored in `data/daily_rewards.json`. The app creates these files locally when needed.
 
 To bring progress into a fresh install, copy your old `data/save.json` into the new install's `data` folder before launching the game. Updates keep the existing save in place.
 
@@ -83,4 +83,4 @@ To prepare an update, change the `version` value in `version.json`, then run the
 .\build_release.ps1
 ```
 
-The script replaces `dist/FocusQuest` with `FocusQuest.exe`, `_internal`, `FocusQuestUpdater.exe`, `version.json`, and an empty default `data/save.json`. Commit and push the version and `dist/FocusQuest` together. The updater downloads that pushed commit and installs the app files beside the currently running EXE while preserving the installed `data` directory, including the user's `save.json`. Keep the EXE, `_internal`, updater, version file, and default save together when distributing the app.
+The script replaces `dist/FocusQuest` with `FocusQuest.exe`, `_internal`, `FocusQuestUpdater.exe`, and `version.json`, after filtering files matched by `.gitignore`. The app creates its `data` directory on first run. Commit and push the version and `dist/FocusQuest` together. The updater installs the app files beside the currently running EXE while preserving the installed `data` directory and the user's saved progress.

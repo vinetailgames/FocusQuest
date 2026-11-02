@@ -14,12 +14,12 @@ __pycache__/
 # PyInstaller packaging output
 build/
 release-output/
-build_release.ps1
+
+# Local release notes
 release_workflow.txt
 
-# Save data (keep personal progress local)
-data/save.json
-data/*.json
+# Local save and daily reward data
+**/data/*.json
 debug.json
 
 # IDE / OS

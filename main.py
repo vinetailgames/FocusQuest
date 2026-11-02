@@ -88,6 +88,7 @@ def main():
     display = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.RESIZABLE)
     screen = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT)).convert()
     pygame.display.set_caption(TITLE)
+    pygame.display.set_icon(pygame.image.load(ICON_PATH))
     clock = pygame.time.Clock()
 
     background = load_background()

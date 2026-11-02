@@ -22,6 +22,7 @@ ASSETS_DIR = os.path.join(RESOURCE_DIR, "assets")
 BACKGROUND_PATH = os.path.join(ASSETS_DIR, "backgrounds", "desk.jpg")
 MUSIC_DIR = os.path.join(ASSETS_DIR, "music")
 DATA_FILE = os.path.join(BASE_DIR, "data", "save.json")
+ICON_PATH = os.path.join(ASSETS_DIR, "icon", "icon.png")
 
 # Colors
 WHITE = (255, 255, 255)
