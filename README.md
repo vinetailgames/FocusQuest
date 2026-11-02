@@ -75,7 +75,7 @@ Press **Delete** to erase all quests, clear the saved task pool, and reset your 
 
 ### Announcements and updates
 
-Click the bell in the upper left to check announcements. The game checks GitHub every two minutes for a newer version in `version.json` and for a new message in the root `announcement.json`. Edit its `announcement` string and push the change to publish a message. Players can dismiss it with **Got it**; that acknowledgement is saved in their local `data` folder. `announcement.json` is fetched from GitHub at runtime and is not included in the build.
+Click the bell in the upper left to open the notification inbox. The game checks GitHub every two minutes for a newer version in `version.json` and for a new message in the root `announcement.json`. Edit its `announcement` string and push the change to publish a message. Each distinct message appears in its own card and stays in the local inbox until dismissed with **Got it**. Scroll the list with the mouse wheel when it has more cards than fit. **Delete all** clears the inbox; if an update is still available, the next check adds its install card again. Seen message IDs and pending messages are saved in the local `data` folder. `announcement.json` is fetched from GitHub at runtime and is not included in the build.
 
 Installing an update asks for confirmation, closes the game, downloads the GitHub commit archive, extracts only `dist/FocusQuest`, replaces the installed bundle, and relaunches `FocusQuest.exe`. Saved data in the install folder is kept.
 

@@ -131,8 +131,7 @@ try {
         "--workpath", (Join-Path $workDirectory "app-work"),
         "--specpath", (Join-Path $workDirectory "app-spec"),
         "--add-data", ((Join-Path $projectRoot "assets") + ";assets"),
-        "--add-data", ((Join-Path $projectRoot "icon.png") + ";."),
-        "--icon", (Join-Path $projectRoot "icon.png"),
+        "--icon", (Join-Path $projectRoot "assets\icon\icon.ico"),
         (Join-Path $projectRoot "main.py")
     )
     & $pythonPath -m PyInstaller @appArgs

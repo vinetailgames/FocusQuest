@@ -54,23 +54,52 @@ def _write_update_state(root, version, commit):
     os.replace(temp_path, state_path)
 
 
-def _read_dismissed_announcement_hash(root):
+def _read_announcement_state(root):
     state_path = root / ANNOUNCEMENT_STATE_RELATIVE_PATH
     try:
         with open(state_path, "r", encoding="utf-8") as state_file:
             state = json.load(state_file)
-        dismissed_hash = state.get("dismissed_hash")
-        return dismissed_hash if isinstance(dismissed_hash, str) else None
     except (OSError, ValueError, AttributeError):
-        return None
+        return set(), []
 
 
-def _write_dismissed_announcement_hash(root, dismissed_hash):
+    seen_ids = state.get("seen_ids", []) if isinstance(state, dict) else []
+    if not isinstance(seen_ids, list):
+        seen_ids = []
+    seen_ids = {item for item in seen_ids if isinstance(item, str)}
+
+    # Read the earlier single-announcement state format during migration.
+    dismissed_hash = state.get("dismissed_hash") if isinstance(state, dict) else None
+    if isinstance(dismissed_hash, str) and dismissed_hash:
+        seen_ids.add(dismissed_hash)
+
+    pending = state.get("pending", []) if isinstance(state, dict) else []
+    if not isinstance(pending, list):
+        pending = []
+    valid_pending = []
+    pending_ids = set()
+    for item in pending:
+        if (
+            isinstance(item, dict)
+            and isinstance(item.get("id"), str)
+            and isinstance(item.get("message"), str)
+            and item["id"] not in pending_ids
+        ):
+            valid_pending.append({"id": item["id"], "message": item["message"]})
+            seen_ids.add(item["id"])
+            pending_ids.add(item["id"])
+    return seen_ids, valid_pending
+
+
+def _write_announcement_state(root, seen_ids, pending):
     state_path = root / ANNOUNCEMENT_STATE_RELATIVE_PATH
     state_path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = state_path.with_suffix(".tmp")
     with open(temp_path, "w", encoding="utf-8") as state_file:
-        json.dump({"dismissed_hash": dismissed_hash}, state_file, indent=2)
+        json.dump({
+            "seen_ids": sorted(seen_ids),
+            "pending": pending,
+        }, state_file, indent=2)
     os.replace(temp_path, state_path)
 
 
@@ -188,8 +217,8 @@ class UpdateService:
         self.is_frozen = bool(getattr(sys, "frozen", False))
         self.local_version = _read_version_file(self.app_root / "version.json")
         self.local_commit = _read_update_state(self.app_root)
-        self.dismissed_announcement_hash = _read_dismissed_announcement_hash(
-            self.app_root
+        self._announcement_seen_ids, self._pending_announcements = (
+            _read_announcement_state(self.app_root)
         )
         if self.local_commit is None:
             self.local_commit = _git_head(self.app_root)
@@ -205,11 +234,12 @@ class UpdateService:
             "available_version": None,
             "available_commit": None,
             "available_asset_url": None,
-            "announcement_message": None,
-            "announcement_hash": None,
-            "announcement_unread": False,
-            "announcement_error": None
+            "announcements": [],
+            "announcement_unread": bool(self._pending_announcements),
+            "announcement_error": None,
+            "check_generation": 0
         }
+        self._publish_announcements_locked()
         self._thread = threading.Thread(
             target=self._run,
             name="FocusQuestUpdateChecker",
@@ -228,24 +258,48 @@ class UpdateService:
 
     def snapshot(self):
         with self._lock:
-            return self._snapshot.copy()
+            snapshot = self._snapshot.copy()
+            snapshot["announcements"] = [
+                announcement.copy()
+                for announcement in self._snapshot["announcements"]
+            ]
+            return snapshot
 
-    def dismiss_announcement(self, announcement_hash):
-        if not isinstance(announcement_hash, str) or not announcement_hash:
+    def dismiss_announcement(self, announcement_id):
+        if not isinstance(announcement_id, str) or not announcement_id:
             return
         with self._lock:
-            self.dismissed_announcement_hash = announcement_hash
-            current_hash = self._snapshot["announcement_hash"]
-            self._snapshot["announcement_unread"] = bool(
-                current_hash and current_hash != announcement_hash
-            )
+            self._pending_announcements = [
+                announcement for announcement in self._pending_announcements
+                if announcement["id"] != announcement_id
+            ]
+            self._persist_announcements_locked()
+            self._publish_announcements_locked()
 
+    def dismiss_all_announcements(self):
+        with self._lock:
+            self._pending_announcements.clear()
+            self._persist_announcements_locked()
+            self._publish_announcements_locked()
+
+    def _persist_announcements_locked(self):
         try:
-            _write_dismissed_announcement_hash(
-                self.app_root, announcement_hash
+            _write_announcement_state(
+                self.app_root,
+                self._announcement_seen_ids,
+                self._pending_announcements,
             )
         except OSError:
             pass
+
+    def _publish_announcements_locked(self):
+        self._snapshot["announcements"] = [
+            announcement.copy()
+            for announcement in self._pending_announcements
+        ]
+        self._snapshot["announcement_unread"] = bool(
+            self._pending_announcements
+        )
 
     def _run(self):
         while not self._stop.is_set():
@@ -264,17 +318,20 @@ class UpdateService:
                 with self._lock:
                     self._snapshot["announcement_error"] = str(error)
             else:
-                announcement_hash = (
-                    hashlib.sha256(announcement_message.encode("utf-8")).hexdigest()
-                    if announcement_message else None
-                )
+                if announcement_message:
+                    announcement_id = hashlib.sha256(
+                        announcement_message.encode("utf-8")
+                    ).hexdigest()
+                    with self._lock:
+                        if announcement_id not in self._announcement_seen_ids:
+                            self._announcement_seen_ids.add(announcement_id)
+                            self._pending_announcements.append({
+                                "id": announcement_id,
+                                "message": announcement_message,
+                            })
+                            self._persist_announcements_locked()
+                            self._publish_announcements_locked()
                 with self._lock:
-                    self._snapshot["announcement_message"] = announcement_message
-                    self._snapshot["announcement_hash"] = announcement_hash
-                    self._snapshot["announcement_unread"] = bool(
-                        announcement_hash
-                        and announcement_hash != self.dismissed_announcement_hash
-                    )
                     self._snapshot["announcement_error"] = None
 
             if self.is_frozen:
@@ -291,6 +348,7 @@ class UpdateService:
                     )
                     self._snapshot["available_commit"] = available_commit
                     self._snapshot["available_asset_url"] = None
+                    self._snapshot["check_generation"] += 1
                 return
 
             if self.local_commit is None and latest_version == self.local_version:
@@ -331,6 +389,7 @@ class UpdateService:
                     latest_commit if update_available else None
                 )
                 self._snapshot["available_asset_url"] = None
+                self._snapshot["check_generation"] += 1
         except urllib.error.HTTPError as error:
             with self._lock:
                 self._snapshot["connection_available"] = True

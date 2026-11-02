@@ -174,8 +174,16 @@ def main():
     last_available_update = None
     update_install_error = None
     announcements_rect = pygame.Rect(
-        SCREEN_WIDTH // 2 - 300, SCREEN_HEIGHT // 2 - 150, 600, 300
+        SCREEN_WIDTH // 2 - 380, SCREEN_HEIGHT // 2 - 270, 760, 540
     )
+    announcements_viewport = pygame.Rect(
+        announcements_rect.x + 24,
+        announcements_rect.y + 66,
+        announcements_rect.width - 48,
+        announcements_rect.height - 142,
+    )
+    announcements_scroll = 0
+    update_hidden_until_generation = -1
     daily_reward_rect = pygame.Rect(
         SCREEN_WIDTH // 2 - 260, SCREEN_HEIGHT // 2 - 120, 520, 240
     )
@@ -195,22 +203,61 @@ def main():
         announcements_rect.right - 52, announcements_rect.y + 14,
         36, 34, "X", font_size=22
     )
-    announcements_dismiss_button = Button(
-        announcements_rect.right - 150, announcements_rect.bottom - 58,
-        120, 40, "Got it", font_size=24, bg_color=GREEN
-    )
-    update_install_button = Button(
-        announcements_rect.right - 150, announcements_rect.y + 100,
-        120, 40, "Install", font_size=24, bg_color=GREEN
+    announcements_delete_all_button = Button(
+        announcements_rect.right - 150, announcements_rect.bottom - 54,
+        120, 38, "Delete all", font_size=22, bg_color=RED
     )
     confirm_yes_button = Button(
-        announcements_rect.x + 165, announcements_rect.y + 190,
+        announcements_rect.centerx - 130, announcements_rect.bottom - 94,
         110, 40, "Yes", font_size=24, bg_color=GREEN
     )
     confirm_no_button = Button(
-        announcements_rect.x + 325, announcements_rect.y + 190,
+        announcements_rect.centerx + 20, announcements_rect.bottom - 94,
         110, 40, "No", font_size=24, bg_color=RED
     )
+
+    def build_announcement_cards(snapshot):
+        cards = [
+            {
+                "kind": "announcement",
+                "id": item["id"],
+                "title": "Announcement",
+                "message": item["message"],
+                "button": "Got it",
+            }
+            for item in reversed(snapshot.get("announcements", []))
+        ]
+        if (
+            snapshot.get("available_version")
+            and snapshot.get("check_generation", 0)
+            > update_hidden_until_generation
+        ):
+            cards.append({
+                "kind": "update",
+                "id": snapshot.get("available_commit"),
+                "title": "Update available",
+                "message": (
+                    f"Update {snapshot['available_version']} is ready to install"
+                ),
+                "button": "Install",
+            })
+
+        for card in cards:
+            normalized_message = card["message"].replace("\r", " ").replace(
+                "\n", " "
+            )
+            card["lines"] = textwrap.wrap(normalized_message, width=64) or [""]
+            card["height"] = max(
+                132,
+                14
+                + small_font.get_linesize()
+                + 4
+                + len(card["lines"]) * small_font.get_linesize()
+                + 10
+                + 34
+                + 12,
+            )
+        return cards
 
     def focused_text_input():
         if (
@@ -288,16 +335,35 @@ def main():
             )
         ):
             last_available_update = update_snapshot.copy()
-        if update_snapshot.get("announcement_unread"):
-            update_install_button.rect.topleft = (
-                announcements_rect.x + 30,
-                announcements_rect.bottom - 58,
+        announcement_cards = build_announcement_cards(update_snapshot)
+        card_gap = 12
+        announcements_content_height = sum(
+            card["height"] for card in announcement_cards
+        ) + max(0, len(announcement_cards) - 1) * card_gap
+        max_announcements_scroll = max(
+            0, announcements_content_height - announcements_viewport.height
+        )
+        announcements_scroll = min(
+            max(0, announcements_scroll), max_announcements_scroll
+        )
+        card_y = announcements_viewport.y - announcements_scroll
+        for card in announcement_cards:
+            card["rect"] = pygame.Rect(
+                announcements_viewport.x,
+                card_y,
+                announcements_viewport.width - 12,
+                card["height"],
             )
-        else:
-            update_install_button.rect.topleft = (
-                announcements_rect.right - 150,
-                announcements_rect.y + 100,
+            card["button_rect"] = pygame.Rect(
+                card["rect"].right - 112,
+                card["rect"].bottom - 44,
+                100,
+                32,
             )
+            card["visible_button_rect"] = card["button_rect"].clip(
+                announcements_viewport
+            )
+            card_y += card["height"] + card_gap
         mouse_pos = to_logical_pos(pygame.mouse.get_pos(), display.get_size())
 
         if daily_rewards.check_for_new_day():
@@ -360,6 +426,20 @@ def main():
                     pending_update = None
                     continue
 
+                if (
+                    not confirm_update_install
+                    and event.type == pygame.MOUSEWHEEL
+                    and announcements_viewport.collidepoint(mouse_pos)
+                ):
+                    announcements_scroll = max(
+                        0,
+                        min(
+                            max_announcements_scroll,
+                            announcements_scroll - event.y * 45,
+                        ),
+                    )
+                    continue
+
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     if confirm_update_install:
                         if confirm_yes_button.is_clicked(event):
@@ -384,24 +464,30 @@ def main():
                             pending_update = None
                     elif announcements_close_button.is_clicked(event):
                         announcements_open = False
-                    elif (
-                        update_snapshot.get("announcement_unread")
-                        and announcements_dismiss_button.is_clicked(event)
-                    ):
-                        update_service.dismiss_announcement(
-                            update_snapshot.get("announcement_hash")
+                    elif announcements_delete_all_button.is_clicked(event):
+                        update_service.dismiss_all_announcements()
+                        update_hidden_until_generation = update_snapshot.get(
+                            "check_generation", 0
                         )
+                        update_service.request_check()
                         update_snapshot = update_service.snapshot()
-                    elif (
-                        update_snapshot["available_version"]
-                        and update_install_button.is_clicked(event)
-                    ):
-                        pending_update = (
-                            last_available_update
-                            or update_service.snapshot()
-                        )
-                        confirm_update_install = True
-                        update_install_error = None
+                    else:
+                        for card in announcement_cards:
+                            if not card["visible_button_rect"].collidepoint(
+                                event.pos
+                            ):
+                                continue
+                            if card["kind"] == "announcement":
+                                update_service.dismiss_announcement(card["id"])
+                                update_snapshot = update_service.snapshot()
+                            elif card["kind"] == "update":
+                                pending_update = (
+                                    last_available_update
+                                    or update_snapshot.copy()
+                                )
+                                confirm_update_install = True
+                                update_install_error = None
+                            break
                 continue
 
             if (
@@ -410,6 +496,7 @@ def main():
                 and bell_rect.collidepoint(event.pos)
             ):
                 announcements_open = True
+                announcements_scroll = 0
                 update_service.request_check()
                 continue
 
@@ -692,8 +779,7 @@ def main():
 
         if announcements_open:
             announcements_close_button.update(mouse_pos)
-            announcements_dismiss_button.update(mouse_pos)
-            update_install_button.update(mouse_pos)
+            announcements_delete_all_button.update(mouse_pos)
             confirm_yes_button.update(mouse_pos)
             confirm_no_button.update(mouse_pos)
 
@@ -708,11 +794,7 @@ def main():
         coin_ui.draw(screen, quest_manager.coin_amount)
 
         draw_bell_icon(
-            screen, bell_rect,
-            (
-                update_snapshot["available_version"] is not None
-                or update_snapshot.get("announcement_unread", False)
-            )
+            screen, bell_rect, bool(announcement_cards)
         )
 
         quest_button.draw(screen)
@@ -876,97 +958,120 @@ def main():
                     "Do you want to install latest version now?", True, WHITE
                 )
                 screen.blit(prompt, prompt.get_rect(center=(
-                    announcements_rect.centerx, announcements_rect.y + 125
+                    announcements_rect.centerx, announcements_rect.y + 220
                 )))
                 confirm_yes_button.draw(screen)
                 confirm_no_button.draw(screen)
                 if update_install_error:
                     error_lines = textwrap.wrap(
-                        f"Updater error: {update_install_error}", width=56
+                        f"Updater error: {update_install_error}", width=64
                     )
-                    if len(error_lines) > 2:
-                        error_lines = error_lines[:2]
-                        error_lines[1] = error_lines[1][:53] + "..."
-                    line_y = announcements_rect.bottom - 48
+                    if len(error_lines) > 3:
+                        error_lines = error_lines[:3]
+                        error_lines[2] = error_lines[2][:61] + "..."
+                    line_y = announcements_rect.y + 280
                     for error_line in error_lines:
                         error_text = small_font.render(error_line, True, RED)
                         screen.blit(error_text, error_text.get_rect(center=(
                             announcements_rect.centerx, line_y
                         )))
                         line_y += 22
-            elif update_snapshot.get("announcement_unread"):
-                announcement_lines = textwrap.wrap(
-                    (update_snapshot.get("announcement_message") or "").replace(
-                        "\n", " "
-                    ),
-                    width=52,
-                    max_lines=4,
-                    placeholder="...",
-                )
-                line_y = announcements_rect.y + 64
-                for announcement_line in announcement_lines:
-                    message_surface = small_font.render(
-                        announcement_line, True, WHITE
-                    )
-                    screen.blit(message_surface, (
-                        announcements_rect.x + 30, line_y
-                    ))
-                    line_y += small_font.get_linesize()
-
-                status_y = announcements_rect.y + 185
-                if update_snapshot["connection_available"] is None:
-                    message = "Checking for updates..."
-                elif not update_snapshot["connection_available"]:
-                    message = "Connection required to check for updates"
-                elif update_snapshot["check_error"]:
-                    message = "GitHub update check failed"
-                elif update_snapshot["available_version"]:
-                    message = (
-                        f"Update {update_snapshot['available_version']} "
-                        "is ready to install"
-                    )
-                    update_install_button.draw(screen)
-                else:
-                    message = "No update available"
-                message_surface = small_font.render(message, True, WHITE)
-                screen.blit(message_surface, (
-                    announcements_rect.x + 30, status_y
-                ))
-                announcements_dismiss_button.draw(screen)
-            elif update_snapshot["connection_available"] is None:
-                message = "Checking for announcements..."
-                message_surface = normal_font.render(message, True, WHITE)
-                screen.blit(message_surface, (
-                    announcements_rect.x + 30, announcements_rect.y + 112
-                ))
-            elif not update_snapshot["connection_available"]:
-                message = "Connection required for announcements"
-                message_surface = normal_font.render(message, True, WHITE)
-                screen.blit(message_surface, (
-                    announcements_rect.x + 30, announcements_rect.y + 112
-                ))
-            elif update_snapshot["check_error"]:
-                message = "GitHub announcements are unavailable"
-                message_surface = normal_font.render(message, True, WHITE)
-                screen.blit(message_surface, (
-                    announcements_rect.x + 30, announcements_rect.y + 112
-                ))
-            elif update_snapshot["available_version"]:
-                message = (
-                    f"Update {update_snapshot['available_version']} "
-                    "is ready to install"
-                )
-                message_surface = small_font.render(message, True, WHITE)
-                screen.blit(message_surface, (
-                    announcements_rect.x + 30, announcements_rect.y + 112
-                ))
-                update_install_button.draw(screen)
             else:
-                message = "No updates or announcements available"
-                message_surface = normal_font.render(message, True, WHITE)
-                screen.blit(message_surface, (
-                    announcements_rect.x + 30, announcements_rect.y + 112
+                previous_clip = screen.get_clip()
+                screen.set_clip(announcements_viewport)
+                if not announcement_cards:
+                    if update_snapshot["connection_available"] is None:
+                        empty_status = "Checking GitHub..."
+                    elif not update_snapshot["connection_available"]:
+                        empty_status = "Connection required to check notifications"
+                    elif update_snapshot["check_error"]:
+                        empty_status = "GitHub notification check failed"
+                    else:
+                        empty_status = "No messages"
+                    empty_message = normal_font.render(empty_status, True, WHITE)
+                    screen.blit(empty_message, (
+                        announcements_viewport.x + 18,
+                        announcements_viewport.y + 18,
+                    ))
+
+                for card in announcement_cards:
+                    card_rect = card["rect"]
+                    if not card_rect.colliderect(announcements_viewport):
+                        continue
+                    pygame.draw.rect(
+                        screen, (32, 32, 44), card_rect, border_radius=10
+                    )
+                    border_color = GOLD if card["kind"] == "update" else LIGHT_GRAY
+                    pygame.draw.rect(
+                        screen, border_color, card_rect, 1, border_radius=10
+                    )
+                    heading = small_font.render(card["title"], True, GOLD)
+                    screen.blit(heading, (
+                        card_rect.x + 16, card_rect.y + 12
+                    ))
+                    line_y = card_rect.y + 14 + small_font.get_linesize() + 4
+                    for message_line in card["lines"]:
+                        message_surface = small_font.render(
+                            message_line, True, WHITE
+                        )
+                        screen.blit(message_surface, (
+                            card_rect.x + 16, line_y
+                        ))
+                        line_y += small_font.get_linesize()
+
+                    button_rect = card["button_rect"]
+                    button_color = GREEN
+                    if button_rect.collidepoint(mouse_pos):
+                        button_color = tuple(
+                            min(channel + 30, 255) for channel in GREEN
+                        )
+                    pygame.draw.rect(
+                        screen, button_color, button_rect, border_radius=7
+                    )
+                    pygame.draw.rect(
+                        screen, LIGHT_GRAY, button_rect, 1, border_radius=7
+                    )
+                    button_text = small_font.render(
+                        card["button"], True, WHITE
+                    )
+                    screen.blit(button_text, button_text.get_rect(
+                        center=button_rect.center
+                    ))
+                screen.set_clip(previous_clip)
+
+                if announcements_content_height > announcements_viewport.height:
+                    track = pygame.Rect(
+                        announcements_viewport.right - 5,
+                        announcements_viewport.y,
+                        4,
+                        announcements_viewport.height,
+                    )
+                    thumb_height = max(
+                        28,
+                        track.height * track.height // announcements_content_height,
+                    )
+                    thumb_offset = (
+                        (track.height - thumb_height) * announcements_scroll
+                        // max_announcements_scroll
+                    )
+                    pygame.draw.rect(screen, (55, 55, 66), track, border_radius=2)
+                    pygame.draw.rect(
+                        screen,
+                        LIGHT_GRAY,
+                        (track.x, track.y + thumb_offset, track.width, thumb_height),
+                        border_radius=2,
+                    )
+
+                message_count = len(announcement_cards)
+                count_label = "message" if message_count == 1 else "messages"
+                count_text = small_font.render(
+                    f"{message_count} {count_label}", True, LIGHT_GRAY
+                )
+                screen.blit(count_text, (
+                    announcements_rect.x + 26,
+                    announcements_rect.bottom - 47,
                 ))
+                announcements_delete_all_button.draw(screen)
 
             announcements_close_button.draw(screen)
 
