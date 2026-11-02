@@ -75,7 +75,9 @@ Press **Delete** to erase all quests, clear the saved task pool, and reset your 
 
 ### Announcements and updates
 
-Click the bell in the upper left to check announcements. The game checks GitHub every two minutes and announces a newer version from `version.json`. Installing asks for confirmation, closes the game, downloads the GitHub commit archive, extracts only `dist/FocusQuest`, replaces the installed bundle, and relaunches `FocusQuest.exe`. Saved data in the install folder is kept.
+Click the bell in the upper left to check announcements. The game checks GitHub every two minutes for a newer version in `version.json` and for a new message in the root `announcement.json`. Edit its `announcement` string and push the change to publish a message. Players can dismiss it with **Got it**; that acknowledgement is saved in their local `data` folder. `announcement.json` is fetched from GitHub at runtime and is not included in the build.
+
+Installing an update asks for confirmation, closes the game, downloads the GitHub commit archive, extracts only `dist/FocusQuest`, replaces the installed bundle, and relaunches `FocusQuest.exe`. Saved data in the install folder is kept.
 
 To prepare an update, change the `version` value in `version.json`, then run the local build script from the project folder in PowerShell:
 

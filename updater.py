@@ -21,6 +21,7 @@ GITHUB_BRANCH = "main"
 CHECK_INTERVAL_SECONDS = 120
 REQUEST_TIMEOUT_SECONDS = 12
 UPDATE_STATE_RELATIVE_PATH = Path("data") / "update_state.json"
+ANNOUNCEMENT_STATE_RELATIVE_PATH = Path("data") / "announcement_state.json"
 PRESERVED_DIRECTORY_NAMES = {".git", ".venv", "venv", "env", "data", "__pycache__"}
 
 
@@ -50,6 +51,26 @@ def _write_update_state(root, version, commit):
     temp_path = state_path.with_suffix(".tmp")
     with open(temp_path, "w", encoding="utf-8") as state_file:
         json.dump({"version": version, "commit": commit}, state_file, indent=2)
+    os.replace(temp_path, state_path)
+
+
+def _read_dismissed_announcement_hash(root):
+    state_path = root / ANNOUNCEMENT_STATE_RELATIVE_PATH
+    try:
+        with open(state_path, "r", encoding="utf-8") as state_file:
+            state = json.load(state_file)
+        dismissed_hash = state.get("dismissed_hash")
+        return dismissed_hash if isinstance(dismissed_hash, str) else None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def _write_dismissed_announcement_hash(root, dismissed_hash):
+    state_path = root / ANNOUNCEMENT_STATE_RELATIVE_PATH
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = state_path.with_suffix(".tmp")
+    with open(temp_path, "w", encoding="utf-8") as state_file:
+        json.dump({"dismissed_hash": dismissed_hash}, state_file, indent=2)
     os.replace(temp_path, state_path)
 
 
@@ -140,12 +161,23 @@ def _latest_github_version(local_version):
     return version.strip(), commit
 
 
-def _latest_binary_update(local_version):
-    """Return a newer version and its repository commit for frozen builds."""
-    version, commit = _latest_github_version(local_version)
-    if _compare_versions(version, local_version) <= 0:
-        return version, None
-    return version, commit
+def _latest_github_announcement(commit):
+    announcement_url = (
+        f"https://raw.githubusercontent.com/{GITHUB_REPOSITORY}/"
+        f"{commit}/announcement.json"
+    )
+    try:
+        payload = _request_json(announcement_url)
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return None
+        raise
+
+    announcement = payload.get("announcement")
+    if not isinstance(announcement, str):
+        raise ValueError("GitHub announcement.json has no string 'announcement'")
+    announcement = announcement.strip()
+    return announcement or None
 
 
 class UpdateService:
@@ -156,6 +188,9 @@ class UpdateService:
         self.is_frozen = bool(getattr(sys, "frozen", False))
         self.local_version = _read_version_file(self.app_root / "version.json")
         self.local_commit = _read_update_state(self.app_root)
+        self.dismissed_announcement_hash = _read_dismissed_announcement_hash(
+            self.app_root
+        )
         if self.local_commit is None:
             self.local_commit = _git_head(self.app_root)
 
@@ -169,7 +204,11 @@ class UpdateService:
             "local_version": self.local_version,
             "available_version": None,
             "available_commit": None,
-            "available_asset_url": None
+            "available_asset_url": None,
+            "announcement_message": None,
+            "announcement_hash": None,
+            "announcement_unread": False,
+            "announcement_error": None
         }
         self._thread = threading.Thread(
             target=self._run,
@@ -191,6 +230,23 @@ class UpdateService:
         with self._lock:
             return self._snapshot.copy()
 
+    def dismiss_announcement(self, announcement_hash):
+        if not isinstance(announcement_hash, str) or not announcement_hash:
+            return
+        with self._lock:
+            self.dismissed_announcement_hash = announcement_hash
+            current_hash = self._snapshot["announcement_hash"]
+            self._snapshot["announcement_unread"] = bool(
+                current_hash and current_hash != announcement_hash
+            )
+
+        try:
+            _write_dismissed_announcement_hash(
+                self.app_root, announcement_hash
+            )
+        except OSError:
+            pass
+
     def _run(self):
         while not self._stop.is_set():
             self._check_once()
@@ -199,21 +255,44 @@ class UpdateService:
 
     def _check_once(self):
         try:
+            latest_version, latest_commit = _latest_github_version(
+                self.local_version
+            )
+            try:
+                announcement_message = _latest_github_announcement(latest_commit)
+            except Exception as error:
+                with self._lock:
+                    self._snapshot["announcement_error"] = str(error)
+            else:
+                announcement_hash = (
+                    hashlib.sha256(announcement_message.encode("utf-8")).hexdigest()
+                    if announcement_message else None
+                )
+                with self._lock:
+                    self._snapshot["announcement_message"] = announcement_message
+                    self._snapshot["announcement_hash"] = announcement_hash
+                    self._snapshot["announcement_unread"] = bool(
+                        announcement_hash
+                        and announcement_hash != self.dismissed_announcement_hash
+                    )
+                    self._snapshot["announcement_error"] = None
+
             if self.is_frozen:
-                latest_version, latest_commit = _latest_binary_update(
-                    self.local_version
+                available_commit = (
+                    latest_commit
+                    if _compare_versions(latest_version, self.local_version) > 0
+                    else None
                 )
                 with self._lock:
                     self._snapshot["connection_available"] = True
                     self._snapshot["check_error"] = None
                     self._snapshot["available_version"] = (
-                        latest_version if latest_commit else None
+                        latest_version if available_commit else None
                     )
-                    self._snapshot["available_commit"] = latest_commit
+                    self._snapshot["available_commit"] = available_commit
                     self._snapshot["available_asset_url"] = None
                 return
 
-            latest_version, latest_commit = _latest_github_version(self.local_version)
             if self.local_commit is None and latest_version == self.local_version:
                 # A source ZIP has no Git metadata. Record its first online baseline.
                 self.local_commit = latest_commit

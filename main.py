@@ -195,6 +195,10 @@ def main():
         announcements_rect.right - 52, announcements_rect.y + 14,
         36, 34, "X", font_size=22
     )
+    announcements_dismiss_button = Button(
+        announcements_rect.right - 150, announcements_rect.bottom - 58,
+        120, 40, "Got it", font_size=24, bg_color=GREEN
+    )
     update_install_button = Button(
         announcements_rect.right - 150, announcements_rect.y + 100,
         120, 40, "Install", font_size=24, bg_color=GREEN
@@ -275,6 +279,25 @@ def main():
     text_input_started = False
     while running:
         dt = clock.tick(FPS)
+        update_snapshot = update_service.snapshot()
+        if (
+            update_snapshot["available_version"]
+            and (
+                update_snapshot.get("available_asset_url")
+                or update_snapshot.get("available_commit")
+            )
+        ):
+            last_available_update = update_snapshot.copy()
+        if update_snapshot.get("announcement_unread"):
+            update_install_button.rect.topleft = (
+                announcements_rect.x + 30,
+                announcements_rect.bottom - 58,
+            )
+        else:
+            update_install_button.rect.topleft = (
+                announcements_rect.right - 150,
+                announcements_rect.y + 100,
+            )
         mouse_pos = to_logical_pos(pygame.mouse.get_pos(), display.get_size())
 
         if daily_rewards.check_for_new_day():
@@ -361,7 +384,18 @@ def main():
                             pending_update = None
                     elif announcements_close_button.is_clicked(event):
                         announcements_open = False
-                    elif update_install_button.is_clicked(event):
+                    elif (
+                        update_snapshot.get("announcement_unread")
+                        and announcements_dismiss_button.is_clicked(event)
+                    ):
+                        update_service.dismiss_announcement(
+                            update_snapshot.get("announcement_hash")
+                        )
+                        update_snapshot = update_service.snapshot()
+                    elif (
+                        update_snapshot["available_version"]
+                        and update_install_button.is_clicked(event)
+                    ):
                         pending_update = (
                             last_available_update
                             or update_service.snapshot()
@@ -658,6 +692,7 @@ def main():
 
         if announcements_open:
             announcements_close_button.update(mouse_pos)
+            announcements_dismiss_button.update(mouse_pos)
             update_install_button.update(mouse_pos)
             confirm_yes_button.update(mouse_pos)
             confirm_no_button.update(mouse_pos)
@@ -672,18 +707,12 @@ def main():
 
         coin_ui.draw(screen, quest_manager.coin_amount)
 
-        update_snapshot = update_service.snapshot()
-        if (
-            update_snapshot["available_version"]
-            and (
-                update_snapshot.get("available_asset_url")
-                or update_snapshot.get("available_commit")
-            )
-        ):
-            last_available_update = update_snapshot.copy()
         draw_bell_icon(
             screen, bell_rect,
-            update_snapshot["available_version"] is not None
+            (
+                update_snapshot["available_version"] is not None
+                or update_snapshot.get("announcement_unread", False)
+            )
         )
 
         quest_button.draw(screen)
@@ -865,6 +894,45 @@ def main():
                             announcements_rect.centerx, line_y
                         )))
                         line_y += 22
+            elif update_snapshot.get("announcement_unread"):
+                announcement_lines = textwrap.wrap(
+                    (update_snapshot.get("announcement_message") or "").replace(
+                        "\n", " "
+                    ),
+                    width=52,
+                    max_lines=4,
+                    placeholder="...",
+                )
+                line_y = announcements_rect.y + 64
+                for announcement_line in announcement_lines:
+                    message_surface = small_font.render(
+                        announcement_line, True, WHITE
+                    )
+                    screen.blit(message_surface, (
+                        announcements_rect.x + 30, line_y
+                    ))
+                    line_y += small_font.get_linesize()
+
+                status_y = announcements_rect.y + 185
+                if update_snapshot["connection_available"] is None:
+                    message = "Checking for updates..."
+                elif not update_snapshot["connection_available"]:
+                    message = "Connection required to check for updates"
+                elif update_snapshot["check_error"]:
+                    message = "GitHub update check failed"
+                elif update_snapshot["available_version"]:
+                    message = (
+                        f"Update {update_snapshot['available_version']} "
+                        "is ready to install"
+                    )
+                    update_install_button.draw(screen)
+                else:
+                    message = "No update available"
+                message_surface = small_font.render(message, True, WHITE)
+                screen.blit(message_surface, (
+                    announcements_rect.x + 30, status_y
+                ))
+                announcements_dismiss_button.draw(screen)
             elif update_snapshot["connection_available"] is None:
                 message = "Checking for announcements..."
                 message_surface = normal_font.render(message, True, WHITE)
@@ -894,7 +962,7 @@ def main():
                 ))
                 update_install_button.draw(screen)
             else:
-                message = "No announcements available"
+                message = "No updates or announcements available"
                 message_surface = normal_font.render(message, True, WHITE)
                 screen.blit(message_surface, (
                     announcements_rect.x + 30, announcements_rect.y + 112
