@@ -3,11 +3,13 @@ import json
 import math
 import os
 import random
+import uuid
 from constants import DATA_FILE
 from quest_options import QuestSettings
 
 class Quest:
-    def __init__(self, task_name, quest_type, subtype, target_value, reward, description, completed=False, tasks=None, source_tasks=None):
+    def __init__(self, task_name, quest_type, subtype, target_value, reward, description, completed=False, tasks=None, source_tasks=None, quest_id=None):
+        self.quest_id = quest_id or str(uuid.uuid4())
         self.task_name = task_name
         self.quest_type = quest_type
         self.subtype = subtype
@@ -21,6 +23,7 @@ class Quest:
 
     def to_dict(self):
         return {
+            "quest_id": self.quest_id,
             "task_name": self.task_name,
             "quest_type": self.quest_type,
             "subtype": self.subtype,
@@ -44,7 +47,8 @@ class Quest:
             data["description"],
             data.get("completed", False),
             data.get("tasks", []),
-            data.get("source_tasks")
+            data.get("source_tasks"),
+            data.get("quest_id")
         )
         q.progress = data.get("progress", 0)
         return q
@@ -56,6 +60,7 @@ class QuestManager:
         self.coin_amount = 0
         self.pending_rewards = []
         self.quests_paused = False
+        self.active_quest_id = None
         self.on_quest_completed = None
         self.settings = QuestSettings(self)
         self.load()
@@ -154,6 +159,7 @@ class QuestManager:
         generated = self._generate_task_list_quests(task_names)
         self.quests.extend(generated)
         self._sort_completed_to_bottom()
+        self._ensure_active_quest()
         self.save()
         return generated
 
@@ -167,6 +173,7 @@ class QuestManager:
         completed = [quest for quest in self.quests if quest.completed]
         random.shuffle(active)
         self.quests[:] = active + completed
+        self._ensure_active_quest()
         self.save()
 
     def add_quest(self, task_name, quest_type):
@@ -183,6 +190,7 @@ class QuestManager:
             return None
         self.quests.append(quest)
         self._sort_completed_to_bottom()
+        self._ensure_active_quest()
         self.save()
         return quest
 
@@ -210,6 +218,7 @@ class QuestManager:
         random.shuffle(self.quests)
         while len(self.quests) > 1 and tuple(id(quest) for quest in self.quests) == previous_order:
             random.shuffle(self.quests)
+        self.active_quest_id = self.quests[0].quest_id if self.quests else None
         self.save()
 
     def regen_quests(self):
@@ -238,16 +247,38 @@ class QuestManager:
             regenerated.append(new_quest)
 
         self.quests[:] = regenerated
+        self.active_quest_id = next(
+            (quest.quest_id for quest in self.quests if not quest.completed), None
+        )
         self.save()
 
     def _complete_quest(self, quest):
+        unfinished_before_completion = [
+            item for item in self.quests if not item.completed
+        ]
+        try:
+            completed_index = unfinished_before_completion.index(quest)
+        except ValueError:
+            completed_index = -1
+
         earned_reward = quest.reward
         quest.completed = True
         self.pending_rewards.append({"type": "quest", "amount": earned_reward})
-        if self.quests and all(item.completed for item in self.quests):
+        remaining_quests = [
+            item for item in unfinished_before_completion if item is not quest
+        ]
+        if not remaining_quests:
             self._start_new_iteration()
         else:
+            next_quest = next(
+                (
+                    item for item in unfinished_before_completion[completed_index + 1:]
+                    if item is not quest
+                ),
+                remaining_quests[0],
+            )
             self._sort_completed_to_bottom()
+            self.active_quest_id = next_quest.quest_id
             self.save()
         if self.on_quest_completed:
             daily_reward = self.on_quest_completed()
@@ -275,15 +306,37 @@ class QuestManager:
         return amount
 
     def get_current_quest(self):
-        return next((quest for quest in self.quests if not quest.completed), None)
+        current = next(
+            (
+                quest for quest in self.quests
+                if quest.quest_id == self.active_quest_id and not quest.completed
+            ),
+            None,
+        )
+        if current is not None:
+            return current
+        return self._ensure_active_quest()
+
+    def _ensure_active_quest(self):
+        current = next(
+            (
+                quest for quest in self.quests
+                if quest.quest_id == self.active_quest_id and not quest.completed
+            ),
+            None,
+        )
+        if current is None:
+            current = next(
+                (quest for quest in self.quests if not quest.completed), None
+            )
+            self.active_quest_id = current.quest_id if current else None
+        return current
 
     def set_current_quest(self, index):
         if 0 <= index < len(self.quests):
             if self.quests[index].completed:
                 return
-            quest = self.quests.pop(index)
-            self.quests.insert(0, quest)
-            self._sort_completed_to_bottom()
+            self.active_quest_id = self.quests[index].quest_id
             self.save()
 
     def add_progress(self, amount):
@@ -322,6 +375,7 @@ class QuestManager:
     def delete_quest(self, index):
         if 0 <= index < len(self.quests):
             quest = self.quests[index]
+            was_active = quest.quest_id == self.active_quest_id
             if quest.quest_type == "task_list":
                 for task in quest.source_tasks:
                     try:
@@ -329,6 +383,12 @@ class QuestManager:
                     except ValueError:
                         pass
             del self.quests[index]
+            if was_active:
+                next_quest = next(
+                    (item for item in self.quests[index:] if not item.completed),
+                    None,
+                ) or next((item for item in self.quests if not item.completed), None)
+                self.active_quest_id = next_quest.quest_id if next_quest else None
             self.save()
 
     def edit_quest(self, index, new_task_name):
@@ -349,6 +409,7 @@ class QuestManager:
         self.coin_amount = 0
         self.pending_rewards.clear()
         self.quests_paused = False
+        self.active_quest_id = None
         self.save()
 
     def save(self):
@@ -357,6 +418,7 @@ class QuestManager:
             "pending_rewards": self.pending_rewards,
             "task_catalog": self.task_catalog,
             "quests_paused": self.quests_paused,
+            "active_quest_id": self.active_quest_id,
             "quests": [q.to_dict() for q in self.quests]
         }
         os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
@@ -414,6 +476,7 @@ class QuestManager:
                         })
             self.quests_paused = bool(data.get("quests_paused", False))
             loaded_quests = [Quest.from_dict(q) for q in data.get("quests", [])]
+            self.active_quest_id = data.get("active_quest_id")
             migrated_task_lists = "task_catalog" not in data
             loaded_iteration_complete = bool(loaded_quests) and all(q.completed for q in loaded_quests)
             if migrated_task_lists:
@@ -431,11 +494,14 @@ class QuestManager:
                 self.quests = loaded_quests
 
             order_changed = self._sort_completed_to_bottom()
+            previous_active_quest_id = self.active_quest_id
+            self._ensure_active_quest()
+            active_quest_changed = self.active_quest_id != previous_active_quest_id
             if (self.quests and all(q.completed for q in self.quests)) or (
                 migrated_task_lists and loaded_iteration_complete
             ):
                 self._start_new_iteration()
-            elif migrated_task_lists or order_changed:
+            elif migrated_task_lists or order_changed or active_quest_changed:
                 self.save()
         except Exception as e:
             print(f"Error loading save: {e}")
@@ -444,3 +510,4 @@ class QuestManager:
             self.coin_amount = 0
             self.pending_rewards = []
             self.quests_paused = False
+            self.active_quest_id = None

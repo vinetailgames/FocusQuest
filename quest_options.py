@@ -47,6 +47,7 @@ class QuestSettings:
             quest.progress = 0
             if quest.quest_type == "task_list":
                 quest.tasks = list(quest.source_tasks)
+        manager._ensure_active_quest()
         manager.save()
 
     def regen_quests(self):
@@ -58,6 +59,7 @@ class QuestSettings:
         manager = self.quest_manager
         manager.quests.clear()
         manager.task_catalog.clear()
+        manager.active_quest_id = None
         manager.save()
 
 

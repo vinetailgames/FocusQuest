@@ -848,11 +848,20 @@ def main():
                     if quest_index >= len(quest_manager.quests):
                         break
                     q = quest_manager.quests[quest_index]
+                    row_rect = quest_list_row_rect(visible_index)
+                    is_current = (
+                        not q.completed
+                        and q.quest_id == quest_manager.active_quest_id
+                    )
                     status = "-"
-                    color = GREEN if q.completed else WHITE
+                    color = (
+                        GOLD if is_current
+                        else GREEN if q.completed
+                        else WHITE
+                    )
                     text = f"{status} {q.description}"
                     label = normal_font.render(text[:50], True, color)
-                    screen.blit(label, quest_list_row_rect(visible_index).topleft)
+                    screen.blit(label, row_rect.topleft)
 
                 if len(quest_manager.quests) > quest_list_visible_rows:
                     track = pygame.Rect(window.right - 14, window.y + 55, 5, quest_list_visible_rows * 32 - 2)

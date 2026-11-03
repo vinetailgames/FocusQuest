@@ -142,6 +142,7 @@ try {
         "--distpath", $helperDist,
         "--workpath", (Join-Path $workDirectory "updater-work"),
         "--specpath", (Join-Path $workDirectory "updater-spec"),
+        "--icon", (Join-Path $projectRoot "assets\icon\icon.ico"),
         (Join-Path $projectRoot "updater.py")
     )
     & $pythonPath -m PyInstaller @updaterArgs
