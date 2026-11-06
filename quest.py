@@ -4,6 +4,7 @@ import math
 import os
 import random
 import uuid
+from collections import Counter
 from constants import DATA_FILE
 from quest_options import QuestSettings
 
@@ -164,17 +165,64 @@ class QuestManager:
         return generated
 
     def replace_task_catalog(self, tasks):
-        """Replace the saved task list and rebuild its current-round quests."""
-        self.task_catalog = self._clean_task_names(tasks)
-        self.quests = [quest for quest in self.quests if quest.quest_type != "task_list"]
-        generated = self._generate_task_list_quests(self.task_catalog)
+        """Update only task quests affected by task edits, deletions, or additions."""
+        new_catalog = self._clean_task_names(tasks)
+        removed_counts = Counter(self.task_catalog) - Counter(new_catalog)
+        added_counts = Counter(new_catalog) - Counter(self.task_catalog)
+        # Consume each added occurrence once while preserving the user's input order.
+        added_tasks = []
+        for task in new_catalog:
+            if added_counts[task] > 0:
+                added_tasks.append(task)
+                added_counts[task] -= 1
+
+        affected = []
+        for quest in self.quests:
+            if quest.quest_type != "task_list":
+                continue
+
+            updated_source = []
+            removed_slots = 0
+            for task in quest.source_tasks:
+                if removed_counts[task] > 0:
+                    removed_counts[task] -= 1
+                    updated_source.append(None)
+                    removed_slots += 1
+                else:
+                    updated_source.append(task)
+
+            if removed_slots:
+                affected.append((quest, updated_source, removed_slots))
+
+        # Treat added tasks as replacements for removed tasks first. This keeps a
+        # renamed task in its existing quest; any additional tasks get new quests.
+        for quest, updated_source, _ in affected:
+            for index, task in enumerate(updated_source):
+                if task is None and added_tasks:
+                    updated_source[index] = added_tasks.pop(0)
+
+            updated_source = [task for task in updated_source if task is not None]
+            if not updated_source:
+                self.quests.remove(quest)
+                continue
+
+            replacement = self._make_task_list_quest(updated_source)
+            quest.subtype = replacement.subtype
+            quest.target_value = replacement.target_value
+            quest.reward = replacement.reward
+            quest.description = replacement.description
+            quest.tasks = list(updated_source)
+            quest.source_tasks = list(updated_source)
+            quest.completed = False
+            quest.progress = 0
+
+        self.task_catalog = new_catalog
+        generated = self._generate_task_list_quests(added_tasks) if added_tasks else []
         self.quests.extend(generated)
-        active = [quest for quest in self.quests if not quest.completed]
-        completed = [quest for quest in self.quests if quest.completed]
-        random.shuffle(active)
-        self.quests[:] = active + completed
+        self._sort_completed_to_bottom()
         self._ensure_active_quest()
         self.save()
+        return generated
 
     def add_quest(self, task_name, quest_type):
         """Add a main/side quest; task lists are created with add_task_list."""
