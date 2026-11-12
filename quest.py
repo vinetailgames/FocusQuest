@@ -270,34 +270,28 @@ class QuestManager:
         self.save()
 
     def regen_quests(self):
-        """Reroll current quest goals without changing their task assignments."""
         regenerated = []
         for quest in self.quests:
             if quest.quest_type in ("main", "side"):
-                new_quest = self._make_quest_variant(quest.task_name, quest.quest_type)
-                while (new_quest.subtype, new_quest.target_value) == (
-                    quest.subtype, quest.target_value
-                ):
-                    new_quest = self._make_quest_variant(quest.task_name, quest.quest_type)
+                new_variant = self._make_quest_variant(quest.task_name, quest.quest_type)
+                while (new_variant.subtype, new_variant.target_value) == (quest.subtype, quest.target_value):
+                    new_variant = self._make_quest_variant(quest.task_name, quest.quest_type)
+                quest.subtype = new_variant.subtype
+                quest.target_value = new_variant.target_value
+                quest.reward = new_variant.reward
+                quest.description = new_variant.description
+                quest.completed = False
+                quest.progress = 0
+                regenerated.append(quest)
             elif quest.quest_type == "task_list":
-                source_tasks = list(quest.source_tasks)
-                new_quest = self._make_task_list_quest(source_tasks)
-                while (new_quest.subtype, new_quest.target_value) == (
-                    quest.subtype, quest.target_value
-                ):
-                    new_quest = self._make_task_list_quest(source_tasks)
+                continue
             else:
                 regenerated.append(quest)
                 continue
 
-            new_quest.completed = False
-            new_quest.progress = 0
-            regenerated.append(new_quest)
-
-        self.quests[:] = regenerated
-        self.active_quest_id = next(
-            (quest.quest_id for quest in self.quests if not quest.completed), None
-        )
+        self.quests = regenerated + self._generate_task_list_quests(self.task_catalog)
+        self._sort_completed_to_bottom()
+        self._ensure_active_quest()
         self.save()
 
     def _complete_quest(self, quest):
